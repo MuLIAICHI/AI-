@@ -2,13 +2,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { db } from '@/lib/db';
-import { chats, messages } from '@/lib/db/schema';
-import { eq, desc, asc, and, or, like, gte, lte, sql, inArray } from 'drizzle-orm';
+import { conversations, messages } from '@/lib/db/schema'; // ✅ Fixed: Use NEW schema
+import { eq, desc, asc, and, or, like, gte, lte, sql, inArray, count } from 'drizzle-orm';
 import { z } from 'zod';
 
 export const runtime = 'edge';
 
-// Validation schemas
+// Validation schemas - Updated for UUID support
 const chatsQuerySchema = z.object({
   // Pagination
   limit: z.string().optional().transform(val => {
@@ -23,7 +23,7 @@ const chatsQuerySchema = z.object({
   }),
   
   // Sorting
-  sortBy: z.enum(['createdAt', 'updatedAt', 'title', 'messageCount']).optional().default('createdAt'),
+  sortBy: z.enum(['createdAt', 'updatedAt', 'title', 'messageCount']).optional().default('updatedAt'),
   sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
   
   // Search and filtering
@@ -40,22 +40,24 @@ const chatsQuerySchema = z.object({
 });
 
 const bulkDeleteSchema = z.object({
-  chatIds: z.array(z.number().int().positive()).min(1, 'At least one chat ID required').max(50, 'Too many chats to delete at once'),
+  conversationIds: z.array(z.string().uuid()).min(1, 'At least one conversation ID required').max(50, 'Too many conversations to delete at once'), // ✅ Fixed: UUID array
   confirm: z.boolean().refine(val => val === true, 'Confirmation required for bulk delete'),
 });
 
 /**
- * GET /api/chats - List user's chats with filtering and search
- * Returns paginated list of user's chat sessions with optional previews and statistics
+ * GET /api/chats - List user's conversations with filtering and search
+ * Returns paginated list of user's conversation sessions with optional previews and statistics
  */
 export async function GET(request: NextRequest) {
   try {
     // 1. Authenticate user
-    const { userId } = auth();
+    const authResult = await auth(); // ✅ Fixed: await auth() properly
+    const userId = authResult?.userId; // ✅ Fixed: extract userId from auth result
+    
     if (!userId) {
       return NextResponse.json({ 
         error: 'Unauthorized',
-        message: 'Please sign in to view your chats' 
+        message: 'Please sign in to view your conversations' 
       }, { status: 401 });
     }
 
@@ -96,24 +98,24 @@ export async function GET(request: NextRequest) {
     } = queryValidation.data;
 
     // 3. Build WHERE conditions
-    let whereConditions = [eq(chats.userId, userId)];
+    let whereConditions = [eq(conversations.userId, userId)]; // ✅ Fixed: use conversations table
 
     // Search functionality
     if (search) {
       whereConditions.push(
         or(
-          like(chats.pdfName, `%${search}%`),
-          like(chats.fileKey, `%${search}%`)
+          like(conversations.title, `%${search}%`), // ✅ Fixed: use title field
+          like(conversations.summary, `%${search}%`) // ✅ Fixed: search in summary too
         )!
       );
     }
 
     // Date range filtering
     if (dateFrom) {
-      whereConditions.push(gte(chats.createdAt, new Date(dateFrom)));
+      whereConditions.push(gte(conversations.createdAt, new Date(dateFrom)));
     }
     if (dateTo) {
-      whereConditions.push(lte(chats.createdAt, new Date(dateTo)));
+      whereConditions.push(lte(conversations.createdAt, new Date(dateTo)));
     }
 
     const whereClause = whereConditions.length > 1 ? and(...whereConditions) : whereConditions[0];
@@ -122,27 +124,29 @@ export async function GET(request: NextRequest) {
     let orderByClause;
     switch (sortBy) {
       case 'title':
-        orderByClause = sortOrder === 'desc' ? desc(chats.pdfName) : asc(chats.pdfName);
+        orderByClause = sortOrder === 'desc' ? desc(conversations.title) : asc(conversations.title); // ✅ Fixed
         break;
       case 'updatedAt':
-        // We'll use createdAt as a proxy for updatedAt since we don't have an updatedAt field
-        orderByClause = sortOrder === 'desc' ? desc(chats.createdAt) : asc(chats.createdAt);
+        orderByClause = sortOrder === 'desc' ? desc(conversations.updatedAt) : asc(conversations.updatedAt); // ✅ Fixed
         break;
       case 'createdAt':
+        orderByClause = sortOrder === 'desc' ? desc(conversations.createdAt) : asc(conversations.createdAt); // ✅ Fixed
+        break;
       default:
-        orderByClause = sortOrder === 'desc' ? desc(chats.createdAt) : asc(chats.createdAt);
+        orderByClause = sortOrder === 'desc' ? desc(conversations.updatedAt) : asc(conversations.updatedAt); // ✅ Fixed
         break;
     }
 
-    // 5. Get base chat list
-    let baseChats = await db
+    // 5. Get base conversation list
+    let baseConversations = await db
       .select({
-        id: chats.id,
-        title: chats.pdfName,
-        createdAt: chats.createdAt,
-        fileKey: chats.fileKey,
+        id: conversations.id,
+        title: conversations.title, // ✅ Fixed: use title field
+        createdAt: conversations.createdAt,
+        updatedAt: conversations.updatedAt,
+        summary: conversations.summary,
       })
-      .from(chats)
+      .from(conversations) // ✅ Fixed: use conversations table
       .where(whereClause)
       .orderBy(orderByClause)
       .limit(limit)
@@ -150,23 +154,23 @@ export async function GET(request: NextRequest) {
 
     // 6. Filter by message count if requested
     if (hasMessages !== undefined) {
-      const chatIds = baseChats.map(chat => chat.id);
-      if (chatIds.length > 0) {
-        const chatsWithMessageCounts = await db
+      const conversationIds = baseConversations.map(conv => conv.id);
+      if (conversationIds.length > 0) {
+        const conversationsWithMessageCounts = await db
           .select({
-            chatId: messages.chatId,
-            messageCount: sql<number>`count(${messages.id})`.as('messageCount')
+            conversationId: messages.conversationId, // ✅ Fixed: use conversationId
+            messageCount: count(messages.id)
           })
           .from(messages)
-          .where(inArray(messages.chatId, chatIds))
-          .groupBy(messages.chatId);
+          .where(inArray(messages.conversationId, conversationIds)) // ✅ Fixed: use conversationId
+          .groupBy(messages.conversationId);
 
-        const chatMessageMap = new Map(
-          chatsWithMessageCounts.map(item => [item.chatId, parseInt(item.messageCount.toString())])
+        const conversationMessageMap = new Map(
+          conversationsWithMessageCounts.map(item => [item.conversationId, item.messageCount])
         );
 
-        baseChats = baseChats.filter(chat => {
-          const messageCount = chatMessageMap.get(chat.id) || 0;
+        baseConversations = baseConversations.filter(conversation => {
+          const messageCount = conversationMessageMap.get(conversation.id) || 0;
           return hasMessages ? messageCount > 0 : messageCount === 0;
         });
       }
@@ -174,20 +178,21 @@ export async function GET(request: NextRequest) {
 
     // 7. Get total count for pagination (before limit/offset)
     const [totalCount] = await db
-      .select({ count: sql<number>`count(*)`.as('count') })
-      .from(chats)
+      .select({ count: count(conversations.id) })
+      .from(conversations) // ✅ Fixed: use conversations table
       .where(whereClause);
 
-    const total = parseInt(totalCount?.count?.toString() || '0');
+    const total = totalCount?.count || 0;
 
-    // 8. Enhance chats with additional data
-    const enhancedChats = await Promise.all(
-      baseChats.map(async (chat) => {
+    // 8. Enhance conversations with additional data
+    const enhancedConversations = await Promise.all(
+      baseConversations.map(async (conversation) => {
         const result: any = {
-          id: chat.id,
-          title: chat.title,
-          createdAt: chat.createdAt,
-          fileKey: chat.fileKey,
+          id: conversation.id,
+          title: conversation.title,
+          createdAt: conversation.createdAt,
+          updatedAt: conversation.updatedAt,
+          summary: conversation.summary,
         };
 
         // Add message preview if requested
@@ -197,38 +202,38 @@ export async function GET(request: NextRequest) {
               content: messages.content,
               role: messages.role,
               createdAt: messages.createdAt,
+              agentType: messages.agentType, // ✅ New: include agent type
             })
             .from(messages)
-            .where(eq(messages.chatId, chat.id))
+            .where(eq(messages.conversationId, conversation.id)) // ✅ Fixed: use conversationId
             .orderBy(desc(messages.createdAt))
             .limit(1);
 
           result.latestMessage = latestMessage ? {
             content: latestMessage.content.length > 100 
-              ? `${latestMessage.content.substring(0, 100)}...` 
+              ? latestMessage.content.substring(0, 100) + '...'
               : latestMessage.content,
             role: latestMessage.role,
             createdAt: latestMessage.createdAt,
+            agentType: latestMessage.agentType,
           } : null;
-
-          result.lastMessageAt = latestMessage?.createdAt || chat.createdAt;
         }
 
         // Add statistics if requested
         if (includeStats) {
           const [stats] = await db
             .select({
-              totalMessages: sql<number>`count(${messages.id})`.as('totalMessages'),
-              userMessages: sql<number>`sum(case when ${messages.role} = 'user' then 1 else 0 end)`.as('userMessages'),
-              assistantMessages: sql<number>`sum(case when ${messages.role} = 'assistant' then 1 else 0 end)`.as('assistantMessages'),
+              totalMessages: count(messages.id),
+              userMessages: sql<number>`count(case when ${messages.role} = 'user' then 1 end)`.as('userMessages'),
+              assistantMessages: sql<number>`count(case when ${messages.role} = 'assistant' then 1 end)`.as('assistantMessages'),
             })
             .from(messages)
-            .where(eq(messages.chatId, chat.id));
+            .where(eq(messages.conversationId, conversation.id)); // ✅ Fixed: use conversationId
 
           result.statistics = {
-            totalMessages: parseInt(stats?.totalMessages?.toString() || '0'),
-            userMessages: parseInt(stats?.userMessages?.toString() || '0'),
-            assistantMessages: parseInt(stats?.assistantMessages?.toString() || '0'),
+            totalMessages: stats?.totalMessages || 0,
+            userMessages: stats?.userMessages || 0,
+            assistantMessages: stats?.assistantMessages || 0,
           };
         }
 
@@ -238,38 +243,38 @@ export async function GET(request: NextRequest) {
 
     // 9. Sort by messageCount if requested (needs to be done after getting stats)
     if (sortBy === 'messageCount' && includeStats) {
-      enhancedChats.sort((a, b) => {
+      enhancedConversations.sort((a, b) => {
         const aCount = a.statistics?.totalMessages || 0;
         const bCount = b.statistics?.totalMessages || 0;
         return sortOrder === 'desc' ? bCount - aCount : aCount - bCount;
       });
     }
 
-    // 10. Get user's overall chat statistics
+    // 10. Get user's overall conversation statistics
     let userStats = {};
     if (includeStats) {
       const [overallStats] = await db
         .select({
-          totalChats: sql<number>`count(distinct ${chats.id})`.as('totalChats'),
+          totalConversations: sql<number>`count(distinct ${conversations.id})`.as('totalConversations'),
           totalMessages: sql<number>`count(${messages.id})`.as('totalMessages'),
-          oldestChat: sql<Date>`min(${chats.createdAt})`.as('oldestChat'),
-          newestChat: sql<Date>`max(${chats.createdAt})`.as('newestChat'),
+          oldestConversation: sql<Date>`min(${conversations.createdAt})`.as('oldestConversation'),
+          newestConversation: sql<Date>`max(${conversations.createdAt})`.as('newestConversation'),
         })
-        .from(chats)
-        .leftJoin(messages, eq(chats.id, messages.chatId))
-        .where(eq(chats.userId, userId));
+        .from(conversations) // ✅ Fixed: use conversations table
+        .leftJoin(messages, eq(conversations.id, messages.conversationId)) // ✅ Fixed: use conversationId
+        .where(eq(conversations.userId, userId));
 
       userStats = {
-        totalChats: parseInt(overallStats?.totalChats?.toString() || '0'),
-        totalMessages: parseInt(overallStats?.totalMessages?.toString() || '0'),
-        oldestChat: overallStats?.oldestChat,
-        newestChat: overallStats?.newestChat,
+        totalConversations: overallStats?.totalConversations || 0,
+        totalMessages: overallStats?.totalMessages || 0,
+        oldestConversation: overallStats?.oldestConversation,
+        newestConversation: overallStats?.newestConversation,
       };
     }
 
     return NextResponse.json({
       success: true,
-      chats: enhancedChats,
+      conversations: enhancedConversations, // ✅ Fixed: renamed from 'chats'
       pagination: {
         limit,
         offset,
@@ -295,10 +300,10 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Get chats error:', error);
+    console.error('Get conversations error:', error);
     return NextResponse.json({
       error: 'Internal server error',
-      message: 'Failed to retrieve chat list',
+      message: 'Failed to retrieve conversation list',
       details: process.env.NODE_ENV === 'development' ? 
         (error instanceof Error ? error.message : 'Unknown error') : 
         undefined
@@ -307,13 +312,15 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * DELETE /api/chats - Bulk delete multiple chats
- * Allows deleting multiple chat sessions at once
+ * DELETE /api/chats - Bulk delete multiple conversations
+ * Allows deleting multiple conversation sessions at once
  */
 export async function DELETE(request: NextRequest) {
   try {
     // 1. Authenticate user
-    const { userId } = auth();
+    const authResult = await auth(); // ✅ Fixed: await auth() properly
+    const userId = authResult?.userId; // ✅ Fixed: extract userId from auth result
+    
     if (!userId) {
       return NextResponse.json({ 
         error: 'Unauthorized' 
@@ -332,141 +339,147 @@ export async function DELETE(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const { chatIds } = validation.data;
+    const { conversationIds } = validation.data; // ✅ Fixed: renamed from chatIds
 
-    // 3. Verify all chats belong to the user
-    const existingChats = await db
+    // 3. Verify all conversations belong to the user
+    const existingConversations = await db
       .select({
-        id: chats.id,
-        title: chats.pdfName,
-        userId: chats.userId,
+        id: conversations.id,
+        title: conversations.title, // ✅ Fixed: use title field
+        userId: conversations.userId,
       })
-      .from(chats)
+      .from(conversations) // ✅ Fixed: use conversations table
       .where(and(
-        inArray(chats.id, chatIds),
-        eq(chats.userId, userId)
+        inArray(conversations.id, conversationIds), // ✅ Fixed: UUID array
+        eq(conversations.userId, userId)
       ));
 
-    if (existingChats.length !== chatIds.length) {
-      const foundIds = existingChats.map(chat => chat.id);
-      const missingIds = chatIds.filter(id => !foundIds.includes(id));
+    if (existingConversations.length !== conversationIds.length) {
+      const foundIds = existingConversations.map(conv => conv.id);
+      const missingIds = conversationIds.filter(id => !foundIds.includes(id));
       
       return NextResponse.json({
-        error: 'Some chats not found',
-        message: 'One or more chats could not be found or do not belong to you',
-        details: { missingChatIds: missingIds }
+        error: 'Some conversations not found',
+        message: 'One or more conversations could not be found or do not belong to you',
+        details: { missingConversationIds: missingIds }
       }, { status: 404 });
     }
 
     // 4. Get message counts before deletion (for confirmation)
     const messageCounts = await db
       .select({
-        chatId: messages.chatId,
-        count: sql<number>`count(${messages.id})`.as('count')
+        conversationId: messages.conversationId, // ✅ Fixed: use conversationId
+        count: count(messages.id)
       })
       .from(messages)
-      .where(inArray(messages.chatId, chatIds))
-      .groupBy(messages.chatId);
+      .where(inArray(messages.conversationId, conversationIds)) // ✅ Fixed: use conversationId
+      .groupBy(messages.conversationId);
 
     const totalMessagesDeleted = messageCounts.reduce(
-      (sum, item) => sum + parseInt(item.count.toString()), 
+      (sum, item) => sum + item.count, 
       0
     );
 
     // 5. Delete messages first (foreign key constraint)
     await db
       .delete(messages)
-      .where(inArray(messages.chatId, chatIds));
+      .where(inArray(messages.conversationId, conversationIds)); // ✅ Fixed: use conversationId
 
-    // 6. Delete chats
+    // 6. Delete conversations
     await db
-      .delete(chats)
+      .delete(conversations) // ✅ Fixed: use conversations table
       .where(and(
-        inArray(chats.id, chatIds),
-        eq(chats.userId, userId)
+        inArray(conversations.id, conversationIds), // ✅ Fixed: UUID array
+        eq(conversations.userId, userId)
       ));
 
     return NextResponse.json({
       success: true,
-      message: `Successfully deleted ${chatIds.length} chat(s)`,
-      deletedChats: existingChats.map(chat => ({
-        id: chat.id,
-        title: chat.title,
+      message: `Successfully deleted ${conversationIds.length} conversation(s)`,
+      deletedConversations: existingConversations.map(conv => ({ // ✅ Fixed: renamed
+        id: conv.id,
+        title: conv.title,
       })),
       statistics: {
-        chatsDeleted: chatIds.length,
+        conversationsDeleted: conversationIds.length,
         messagesDeleted: totalMessagesDeleted,
       }
     });
 
   } catch (error) {
-    console.error('Bulk delete chats error:', error);
+    console.error('Bulk delete conversations error:', error);
     return NextResponse.json({
-      error: 'Failed to delete chats',
-      message: 'Could not delete the requested chat sessions'
+      error: 'Failed to delete conversations',
+      message: 'Could not delete the requested conversation sessions'
     }, { status: 500 });
   }
 }
 
 /**
- * POST /api/chats - Create a new chat (alternative to main chat endpoint)
- * For cases where you want to create an empty chat first
+ * POST /api/chats - Create a new conversation (alternative to main chat endpoint)
+ * For cases where you want to create an empty conversation first
  */
 export async function POST(request: NextRequest) {
   try {
     // 1. Authenticate user
-    const { userId } = auth();
+    const authResult = await auth(); // ✅ Fixed: await auth() properly
+    const userId = authResult?.userId; // ✅ Fixed: extract userId from auth result
+    
     if (!userId) {
       return NextResponse.json({ 
-        error: 'Unauthorized' 
+        error: 'Unauthorized',
+        message: 'Please sign in to create conversations' 
       }, { status: 401 });
     }
 
-    // 2. Parse request body (optional)
-    const createChatSchema = z.object({
-      title: z.string().min(1).max(200).optional().default('New Chat'),
+    // 2. Parse and validate request body
+    const createSchema = z.object({
+      title: z.string().min(1, 'Title is required').max(200, 'Title too long').default('New Conversation'),
+      summary: z.string().max(500, 'Summary too long').optional(),
     });
 
     const body = await request.json().catch(() => ({}));
-    const validation = createChatSchema.safeParse(body);
+    const validation = createSchema.safeParse(body);
 
     if (!validation.success) {
       return NextResponse.json({
-        error: 'Invalid chat data',
+        error: 'Invalid conversation data',
+        message: 'Please check your input',
         details: validation.error.errors
       }, { status: 400 });
     }
 
-    const { title } = validation.data;
+    const { title, summary } = validation.data;
 
-    // 3. Create new chat
-    const [newChat] = await db
-      .insert(chats)
+    // 3. Create new conversation
+    const [newConversation] = await db
+      .insert(conversations) // ✅ Fixed: use conversations table
       .values({
         userId,
-        pdfName: title,
-        pdfUrl: '',
-        fileKey: `chat_${userId}_${Date.now()}`,
+        title,
+        summary,
         createdAt: new Date(),
+        updatedAt: new Date(),
       })
       .returning();
 
     return NextResponse.json({
       success: true,
-      message: 'Chat created successfully',
-      chat: {
-        id: newChat.id,
-        title: newChat.pdfName,
-        createdAt: newChat.createdAt,
-        fileKey: newChat.fileKey,
+      message: 'Conversation created successfully',
+      conversation: { // ✅ Fixed: renamed from 'chat'
+        id: newConversation.id,
+        title: newConversation.title,
+        summary: newConversation.summary,
+        createdAt: newConversation.createdAt,
+        updatedAt: newConversation.updatedAt,
       }
-    }, { status: 201 });
+    });
 
   } catch (error) {
-    console.error('Create chat error:', error);
+    console.error('Create conversation error:', error);
     return NextResponse.json({
-      error: 'Failed to create chat',
-      message: 'Could not create new chat session'
+      error: 'Failed to create conversation',
+      message: 'Could not create new conversation session'
     }, { status: 500 });
   }
 }

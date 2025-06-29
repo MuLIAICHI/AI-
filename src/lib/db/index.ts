@@ -1,12 +1,12 @@
-import { config } from 'dotenv';
+// src/lib/db/index.ts
+// ✅ FIXED: Edge Runtime Compatible Database Connection
 import { drizzle } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
+import { eq } from 'drizzle-orm'; // ✅ FIXED: Import eq function properly
 import * as schema from './schema';
 
-// Load environment variables
-config({ path: '.env.local' });
-
-// Validate environment variable
+// ✅ REMOVED: dotenv import (not compatible with edge runtime)
+// ✅ FIXED: Environment variables are available directly in edge runtime
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
@@ -18,9 +18,8 @@ if (!connectionString) {
 // Create the connection
 const sql = neon(connectionString);
 
-// Create and export the database instance (CORRECTED PATTERN)
-export const db = drizzle({ 
-  client: sql, 
+// Create and export the database instance
+export const db = drizzle(sql, { 
   schema,
   logger: process.env.NODE_ENV === 'development' 
 });
@@ -29,11 +28,11 @@ export const db = drizzle({
 export * from './schema';
 
 // ==========================================
-// DATABASE UTILITIES
+// DATABASE UTILITIES (EDGE RUNTIME COMPATIBLE)
 // ==========================================
 
 /**
- * Test database connection
+ * Test database connection (edge runtime compatible)
  */
 export async function testConnection(): Promise<boolean> {
   try {
@@ -48,7 +47,7 @@ export async function testConnection(): Promise<boolean> {
 }
 
 /**
- * Health check for the database
+ * Health check for the database (edge runtime compatible)
  */
 export async function healthCheck(): Promise<{
   status: 'healthy' | 'unhealthy';
@@ -73,171 +72,9 @@ export async function healthCheck(): Promise<{
   }
 }
 
-/**
- * Database transaction helper
- */
-import type { PgColumn, PgTransaction } from 'drizzle-orm/pg-core';
-import type { NeonHttpQueryResultHKT, NeonHttpDatabase } from 'drizzle-orm/neon-http';
-import type { ExtractTablesWithRelations } from 'drizzle-orm';
-
-export async function withTransaction<T>(
-  callback: (
-    tx: PgTransaction<
-      NeonHttpQueryResultHKT,
-      typeof schema,
-      ExtractTablesWithRelations<typeof schema>
-    >
-  ) => Promise<T>
-): Promise<T> {
-  return await db.transaction(callback);
-}
-
 // ==========================================
-// QUERY HELPERS (UPDATED FOR LATEST DRIZZLE)
+// CONVERSATION HELPERS (UPDATED SCHEMA)
 // ==========================================
-
-/**
- * Get user by Clerk ID
- */
-export async function getUserByClerkId(clerkId: string) {
-  try {
-    const user = await db.query.users.findFirst({
-      where: (users, { eq }) => eq(users.clerkId, clerkId),
-    });
-    
-    return user || null;
-  } catch (error) {
-    console.error('Error fetching user:', error);
-    return null;
-  }
-}
-
-/**
- * Get user with all related data
- */
-export async function getUserWithRelations(clerkId: string) {
-  try {
-    const user = await db.query.users.findFirst({
-      where: (users, { eq }) => eq(users.clerkId, clerkId),
-      with: {
-        preferences: true,
-        progress: true,
-        conversations: {
-          with: {
-            messages: {
-              orderBy: (messages, { desc }) => [desc(messages.createdAt)],
-              limit: 10, // Latest 10 messages per conversation
-            }
-          },
-          orderBy: (conversations, { desc }) => [desc(conversations.updatedAt)],
-          limit: 20, // Latest 20 conversations
-        },
-        assessments: {
-          orderBy: (assessments, { desc }) => [desc(assessments.completedAt)],
-          limit: 10, // Latest 10 assessments
-        }
-      }
-    });
-    
-    return user || null;
-  } catch (error) {
-    console.error('Error fetching user with relations:', error);
-    return null;
-  }
-}
-
-/**
- * Create or update user from Clerk data (UPDATED WITH LATEST CLERK FIELDS)
- */
-export async function upsertUser(userData: {
-  clerkId: string;
-  email: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  username?: string | null;
-  imageUrl?: string | null;
-  profileImageUrl?: string | null;
-}) {
-  try {
-    const existingUser = await getUserByClerkId(userData.clerkId);
-    
-    if (existingUser) {
-      // Update existing user
-      const [updatedUser] = await db
-        .update(schema.users)
-        .set({
-          email: userData.email,
-          firstName: userData.firstName,
-          lastName: userData.lastName,
-          imageUrl: userData.imageUrl || userData.profileImageUrl,
-          updatedAt: new Date(),
-        })
-        .where(schema.eq(schema.users.clerkId, userData.clerkId))
-        .returning();
-      
-      return updatedUser;
-    } else {
-      // Create new user
-      const [newUser] = await db
-        .insert(schema.users)
-        .values({
-          clerkId: userData.clerkId,
-          email: userData.email,
-          firstName: userData.firstName,
-          lastName: userData.lastName,
-          imageUrl: userData.imageUrl || userData.profileImageUrl,
-        })
-        .returning();
-      
-      // Create default preferences for new user
-      await db
-        .insert(schema.userPreferences)
-        .values({
-          userId: userData.clerkId,
-          theme: 'dark',
-          language: 'en',
-          emailNotifications: true,
-          pushNotifications: true,
-          weeklyProgress: true,
-          dailyGoalMinutes: 30,
-        });
-      
-      return newUser;
-    }
-  } catch (error) {
-    console.error('Error upserting user:', error);
-    throw error;
-  }
-}
-
-/**
- * Get user conversations with pagination
- */
-export async function getUserConversations(
-  clerkId: string,
-  limit: number = 20,
-  offset: number = 0
-) {
-  try {
-    const conversations = await db.query.conversations.findMany({
-      where: (conversations, { eq }) => eq(conversations.userId, clerkId),
-      with: {
-        messages: {
-          orderBy: (messages, { desc }) => [desc(messages.createdAt)],
-          limit: 1, // Just the latest message for preview
-        }
-      },
-      orderBy: (conversations, { desc }) => [desc(conversations.updatedAt)],
-      limit,
-      offset,
-    });
-    
-    return conversations;
-  } catch (error) {
-    console.error('Error fetching user conversations:', error);
-    return [];
-  }
-}
 
 /**
  * Get conversation with all messages
@@ -270,6 +107,8 @@ export async function createConversation(userId: string, title: string) {
       .values({
         userId,
         title,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       .returning();
     
@@ -297,50 +136,19 @@ export async function addMessage(
         role,
         content,
         agentType,
+        createdAt: new Date(),
       })
       .returning();
     
-    // Update conversation timestamp
+    // Update conversation timestamp - ✅ FIXED: Use eq from drizzle-orm
     await db
       .update(schema.conversations)
       .set({ updatedAt: new Date() })
-      .where(schema.eq(schema.conversations.id, conversationId));
+      .where(eq(schema.conversations.id, conversationId)); // ✅ FIXED: Correct eq usage
     
     return message;
   } catch (error) {
     console.error('Error adding message:', error);
     throw error;
-  }
-}
-
-// ==========================================
-// DEVELOPMENT HELPERS
-// ==========================================
-
-/**
- * Development helper to reset database
- * ⚠️ WARNING: This will delete ALL data
- */
-export async function resetDatabase() {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('Database reset is not allowed in production');
-  }
-  
-  try {
-    console.log('⚠️  Resetting database...');
-    
-    // Drop tables in reverse dependency order
-    await sql`DROP TABLE IF EXISTS messages CASCADE`;
-    await sql`DROP TABLE IF EXISTS conversations CASCADE`;
-    await sql`DROP TABLE IF EXISTS assessments CASCADE`;
-    await sql`DROP TABLE IF EXISTS user_progress CASCADE`;
-    await sql`DROP TABLE IF EXISTS user_preferences CASCADE`;
-    await sql`DROP TABLE IF EXISTS users CASCADE`;
-    
-    console.log('✅ Database reset complete');
-    return true;
-  } catch (error) {
-    console.error('❌ Database reset failed:', error);
-    return false;
   }
 }

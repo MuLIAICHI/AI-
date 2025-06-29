@@ -3,76 +3,77 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { mastraService } from '@/lib/mastra';
 import { db } from '@/lib/db';
-import { chats, messages } from '@/lib/db/schema';
-import { eq, sql, and } from 'drizzle-orm';
+import { conversations, messages } from '@/lib/db/schema'; // ✅ Fixed: Use NEW schema
+import { eq, desc, count, sql, and } from 'drizzle-orm'; // ✅ Added 'and' for combining conditions
 import { z } from 'zod';
 
 export const runtime = 'edge';
 
-// Validation schemas
-const agentTestSchema = z.object({
-  agentIds: z.array(z.enum(['router', 'digital-mentor', 'finance-guide', 'health-coach'])).optional(),
-  includeResponse: z.boolean().optional().default(false),
+// Request validation schemas
+const healthCheckSchema = z.object({
+  testMessage: z.string().default('Hello, this is a test message'),
+  includeStats: z.boolean().default(true),
 });
 
-/**
- * Agent information and capabilities
- */
-const AGENT_DETAILS = {
+// ==========================================
+// AGENT CONFIGURATION DATA
+// ==========================================
+
+const AGENT_CONFIGS = {
   'router': {
     id: 'router',
     name: 'Smart Router',
-    displayName: 'Intelligent Router',
-    description: 'Analyzes your questions and connects you with the right learning specialist',
+    displayName: 'Intelligent Assistant',
+    description: 'I analyze your questions and connect you with the right specialist',
     emoji: '🤖',
     color: '#3B82F6', // blue-500
     expertise: [
       'Intent analysis and routing',
       'General assistance and guidance',
       'Learning path recommendations',
-      'Multi-agent coordination'
+      'Multi-specialist coordination'
     ],
     capabilities: [
-      'Natural language understanding',
-      'Context-aware routing',
-      'Fallback assistance',
-      'User onboarding'
+      'Smart routing to specialists',
+      'General conversation handling',
+      'User intent understanding',
+      'Contextual assistance'
     ],
     exampleQuestions: [
-      "I need help with something but I'm not sure what",
-      "Can you help me learn new skills?",
-      "What can you teach me?",
-      "I'm new here, where do I start?"
+      "I need help with technology",
+      "Can you help me with money management?",
+      "I want to learn about digital health",
+      "What can Smartlyte help me with?"
     ],
     personality: {
-      tone: 'friendly and helpful',
-      approach: 'guides users to the right specialist',
-      strength: 'understanding diverse user needs'
+      tone: 'friendly and intelligent',
+      approach: 'analyzes needs and routes efficiently',
+      strength: 'understanding user intent and providing appropriate guidance'
     }
   },
   'digital-mentor': {
     id: 'digital-mentor',
     name: 'Digital Mentor',
-    displayName: 'Digital Skills Expert',
-    description: 'Your friendly guide to mastering technology and digital skills',
+    displayName: 'Technology Learning Guide',
+    description: 'Your patient guide to mastering essential digital skills',
     emoji: '🖥️',
     color: '#8B5CF6', // purple-500
     expertise: [
       'Email setup and management',
       'Web browsing and internet safety',
       'Mobile apps and smartphone usage',
-      'Password security and online safety',
-      'Social media basics and privacy',
+      'Password management and security',
+      'Social media safety and etiquette',
       'Online shopping and digital payments'
     ],
     capabilities: [
-      'Step-by-step technology tutorials',
-      'Security best practices',
+      'Step-by-step tech tutorials',
+      'Safety and security guidance',
       'Device troubleshooting',
       'Digital literacy education'
     ],
     exampleQuestions: [
-      "How do I set up an email account?",
+      "How do I set up email on my phone?",
       "What's the safest way to shop online?",
       "How do I use WhatsApp or Facebook?",
       "Help me understand passwords and security"
@@ -158,235 +159,280 @@ const AGENT_DETAILS = {
 export async function GET(request: NextRequest) {
   try {
     // 1. Authenticate user (optional for agent info, but useful for personalization)
-    const { userId } = auth();
+    const authResult = await auth(); // ✅ Fixed: await the auth() promise
+    const userId = authResult?.userId; // ✅ Fixed: extract userId from auth result
 
-    // 2. Parse query parameters
+    // 2. Get query parameters
     const { searchParams } = new URL(request.url);
-    const includeStats = searchParams.get('includeStats') === 'true';
-    const includeExamples = searchParams.get('includeExamples') !== 'false'; // default true
-    const format = searchParams.get('format') || 'detailed'; // 'detailed' | 'minimal'
+    const includeStats = searchParams.get('stats') === 'true';
+    const agentId = searchParams.get('agentId');
 
-    // 3. Build base agent information
-    const agents = Object.values(AGENT_DETAILS).map(agent => {
-      const baseInfo = {
-        id: agent.id,
-        name: agent.name,
-        displayName: agent.displayName,
-        description: agent.description,
-        emoji: agent.emoji,
-        color: agent.color,
-        status: 'active', // Could be dynamic based on health checks
-      };
-
-      if (format === 'minimal') {
-        return baseInfo;
+    // 3. If specific agent requested, return just that agent
+    if (agentId && agentId in AGENT_CONFIGS) {
+      const agent = AGENT_CONFIGS[agentId as keyof typeof AGENT_CONFIGS];
+      
+      let stats = null;
+      if (includeStats && userId) {
+        // Get user-specific stats for this agent
+        stats = await getUserAgentStats(userId, agentId);
       }
 
-      return {
-        ...baseInfo,
-        expertise: agent.expertise,
-        capabilities: agent.capabilities,
-        personality: agent.personality,
-        ...(includeExamples && { exampleQuestions: agent.exampleQuestions }),
-      };
-    });
-
-    // 4. Get usage statistics if requested and user is authenticated
-    let agentStats = {};
-    if (includeStats && userId) {
-      try {
-        // Get user's message counts by agent (approximate based on routing)
-        const userMessageStats = await db
-          .select({
-            totalChats: sql<number>`count(distinct ${chats.id})`.as('totalChats'),
-            totalMessages: sql<number>`count(${messages.id})`.as('totalMessages'),
-          })
-          .from(chats)
-          .leftJoin(messages, eq(chats.id, messages.chatId))
-          .where(eq(chats.userId, userId));
-
-        agentStats = {
-          userTotalChats: parseInt(userMessageStats[0]?.totalChats?.toString() || '0'),
-          userTotalMessages: parseInt(userMessageStats[0]?.totalMessages?.toString() || '0'),
-          // Note: We don't track which specific agent responded to each message
-          // This could be enhanced by adding an agentId field to the messages table
-        };
-      } catch (error) {
-        console.warn('Failed to get agent stats:', error);
-        // Continue without stats rather than failing
-      }
+      return NextResponse.json({
+        success: true,
+        agent: {
+          ...agent,
+          stats
+        }
+      });
     }
 
-    // 5. Add routing information
-    const routingInfo = {
-      defaultAgent: 'router',
-      routingStrategy: 'intelligent',
-      fallbackAgent: 'router',
-      supportedLanguages: ['en', 'es', 'fr', 'de', 'it'], // Based on your language tool
-      availableFeatures: [
-        'intelligent-routing',
-        'conversation-memory',
-        'multi-language-support',
-        'real-time-streaming',
-        'agent-switching'
-      ]
-    };
+    // 4. Return all agents with optional stats
+    const agentsWithStats = await Promise.all(
+      Object.values(AGENT_CONFIGS).map(async (agent) => {
+        let stats = null;
+        if (includeStats && userId) {
+          stats = await getUserAgentStats(userId, agent.id);
+        }
+        
+        return {
+          ...agent,
+          stats
+        };
+      })
+    );
+
+    // 5. Get overall platform statistics if requested
+    let platformStats = null;
+    if (includeStats) {
+      platformStats = await getPlatformStats(userId || undefined); // ✅ Fixed: handle null vs undefined
+    }
 
     return NextResponse.json({
       success: true,
-      agents,
-      routing: routingInfo,
-      ...(includeStats && { statistics: agentStats }),
-      metadata: {
-        totalAgents: agents.length,
-        specialistAgents: agents.length - 1, // Exclude router
-        requestedAt: new Date().toISOString(),
-        format,
-        includeStats,
-        includeExamples,
-      }
+      agents: agentsWithStats,
+      platformStats,
+      totalAgents: Object.keys(AGENT_CONFIGS).length
     });
 
   } catch (error) {
-    console.error('Get agents error:', error);
+    console.error('Error fetching agents:', error);
     return NextResponse.json({
-      error: 'Internal server error',
-      message: 'Failed to retrieve agent information',
-      details: process.env.NODE_ENV === 'development' ? 
-        (error instanceof Error ? error.message : 'Unknown error') : 
-        undefined
+      success: false,
+      error: 'Failed to fetch agent information',
+      message: 'Please try again later'
     }, { status: 500 });
   }
 }
 
 /**
  * POST /api/agents - Test agent connectivity and health
- * Tests whether agents are responding correctly
+ * Useful for debugging and ensuring all agents are working properly
  */
 export async function POST(request: NextRequest) {
   try {
     // 1. Authenticate user
-    const { userId } = auth();
+    const authResult = await auth(); // ✅ Fixed: await the auth() promise
+    const userId = authResult?.userId; // ✅ Fixed: extract userId from auth result
+    
     if (!userId) {
-      return NextResponse.json({ 
+      return NextResponse.json({
+        success: false,
         error: 'Unauthorized',
-        message: 'Please sign in to test agent connectivity' 
+        message: 'Please sign in to test agents'
       }, { status: 401 });
     }
 
-    // 2. Parse and validate request body
-    const body = await request.json().catch(() => ({}));
-    const validation = agentTestSchema.safeParse(body);
-
+    // 2. Parse and validate request
+    const body = await request.json();
+    const validation = healthCheckSchema.safeParse(body);
+    
     if (!validation.success) {
       return NextResponse.json({
-        error: 'Invalid test request',
-        message: 'Please check your request format',
+        success: false,
+        error: 'Invalid request',
         details: validation.error.errors
       }, { status: 400 });
     }
 
-    const { agentIds, includeResponse } = validation.data;
-    const testAgents = agentIds || ['router', 'digital-mentor', 'finance-guide', 'health-coach'];
+    const { testMessage, includeStats } = validation.data;
 
-    // 3. Test agent connectivity using mastraService
-    const testResults = await Promise.all(
-      testAgents.map(async (agentId) => {
-        const agentInfo = AGENT_DETAILS[agentId];
-        const startTime = Date.now();
-        
-        try {
-          const testMessage = "This is a connectivity test. Please respond with a brief greeting.";
-          const response = await mastraService.chat(userId, testMessage, {
-            agentId: agentId,
-            stream: false,
-          });
+    // 3. Test all agents with the mastraService
+    const agentTests = await mastraService.testAgents(); // ✅ Fixed: no parameters
 
-          const responseTime = Date.now() - startTime;
-          
-          return {
-            agentId,
-            name: agentInfo.name,
-            status: response.success ? 'healthy' : 'error',
-            responseTime: `${responseTime}ms`,
-            error: response.success ? null : response.error,
-            ...(includeResponse && response.success && { 
-              testResponse: response.message?.substring(0, 100) + '...' 
-            }),
-          };
-        } catch (error) {
-          const responseTime = Date.now() - startTime;
-          return {
-            agentId,
-            name: agentInfo.name,
-            status: 'error',
-            responseTime: `${responseTime}ms`,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          };
-        }
-      })
-    );
+    // 4. Get usage statistics if requested
+    let stats = null;
+    if (includeStats) {
+      stats = await getPlatformStats(userId);
+    }
 
-    // 4. Calculate overall health
-    const healthyAgents = testResults.filter(result => result.status === 'healthy').length;
-    const totalAgents = testResults.length;
-    const systemHealth = {
-      status: healthyAgents === totalAgents ? 'healthy' : 
-               healthyAgents > 0 ? 'degraded' : 'down',
-      healthyAgents,
-      totalAgents,
-      healthPercentage: Math.round((healthyAgents / totalAgents) * 100),
-    };
-
+    // 5. Return comprehensive health check results
     return NextResponse.json({
       success: true,
-      message: 'Agent connectivity test completed',
-      systemHealth,
-      agentResults: testResults,
-      testMetadata: {
-        testedAt: new Date().toISOString(),
-        userId: userId.substring(0, 8) + '...', // Partial ID for privacy
-        includeResponse,
-      }
+      message: 'Agent health check completed',
+      healthCheck: {
+        timestamp: new Date().toISOString(),
+        testMessage,
+        ...agentTests
+      },
+      stats,
+      recommendations: generateHealthRecommendations(agentTests)
     });
 
   } catch (error) {
-    console.error('Agent test error:', error);
+    console.error('Error testing agents:', error);
     return NextResponse.json({
-      error: 'Failed to test agents',
-      message: 'Could not complete agent connectivity test'
+      success: false,
+      error: 'Agent health check failed',
+      message: error instanceof Error ? error.message : 'Unknown error occurred'
     }, { status: 500 });
   }
 }
 
+// ==========================================
+// HELPER FUNCTIONS
+// ==========================================
+
 /**
- * PATCH /api/agents - Update agent preferences (future enhancement)
- * Could be used for user-specific agent preferences
+ * Get user-specific statistics for an agent
  */
-export async function PATCH(request: NextRequest) {
+async function getUserAgentStats(userId: string, agentId: string) {
   try {
-    // This endpoint is reserved for future functionality
-    // Could implement user preferences like:
-    // - Preferred default agent
-    // - Agent personality settings  
-    // - Routing preferences
-    
-    return NextResponse.json({
-      error: 'Not implemented',
-      message: 'Agent preferences are not yet configurable',
-      plannedFeatures: [
-        'Set preferred default agent',
-        'Customize agent personalities',
-        'Configure routing preferences',
-        'Set language preferences per agent'
-      ]
-    }, { status: 501 });
+    // Get user's conversations using NEW schema
+    const userConversations = await db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(eq(conversations.userId, userId));
+
+    if (userConversations.length === 0) {
+      return {
+        totalMessages: 0,
+        totalConversations: 0,
+        lastUsed: null,
+        avgMessagesPerChat: 0
+      };
+    }
+
+    const conversationIds = userConversations.map(conv => conv.id);
+
+    // Count messages for this agent (if agentType field exists)
+    const [messageStats] = await db
+      .select({
+        totalMessages: count(messages.id),
+      })
+      .from(messages)
+      .where(
+        and(
+          sql`${messages.conversationId} IN (${sql.join(conversationIds, sql`, `)})`, // ✅ Fixed: use conversationId
+          sql`${messages.agentType} = ${agentId} OR ${messages.agentType} IS NULL`
+        )
+      );
+
+    // Get last message date for this agent
+    const [lastMessage] = await db
+      .select({
+        createdAt: messages.createdAt
+      })
+      .from(messages)
+      .where(
+        and(
+          sql`${messages.conversationId} IN (${sql.join(conversationIds, sql`, `)})`, // ✅ Fixed: use conversationId
+          sql`${messages.agentType} = ${agentId} OR ${messages.agentType} IS NULL`
+        )
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(1);
+
+    return {
+      totalMessages: messageStats?.totalMessages || 0,
+      totalConversations: userConversations.length,
+      lastUsed: lastMessage?.createdAt || null,
+      avgMessagesPerChat: userConversations.length > 0 
+        ? Math.round((messageStats?.totalMessages || 0) / userConversations.length) 
+        : 0
+    };
 
   } catch (error) {
-    console.error('Agent preferences error:', error);
-    return NextResponse.json({
-      error: 'Failed to update preferences',
-      message: 'Could not update agent preferences'
-    }, { status: 500 });
+    console.error('Error getting user agent stats:', error);
+    return {
+      totalMessages: 0,
+      totalConversations: 0,
+      lastUsed: null,
+      avgMessagesPerChat: 0
+    };
   }
+}
+
+/**
+ * Get platform-wide statistics
+ */
+async function getPlatformStats(userId?: string) {
+  try {
+    // Get total platform stats using NEW schema
+    const [platformStats] = await db
+      .select({
+        totalConversations: count(conversations.id),
+        totalMessages: count(messages.id),
+      })
+      .from(conversations)
+      .leftJoin(messages, eq(messages.conversationId, conversations.id)); // ✅ Fixed: use conversationId
+
+    // Get user-specific stats if userId provided
+    let userStats = null;
+    if (userId) {
+      const [userStatsResult] = await db
+        .select({
+          userConversations: count(conversations.id),
+        })
+        .from(conversations)
+        .where(eq(conversations.userId, userId));
+
+      userStats = {
+        totalConversations: userStatsResult?.userConversations || 0,
+        joinDate: new Date(), // This would come from user table in real implementation
+      };
+    }
+
+    return {
+      platform: {
+        totalConversations: platformStats?.totalConversations || 0,
+        totalMessages: platformStats?.totalMessages || 0,
+      },
+      user: userStats
+    };
+
+  } catch (error) {
+    console.error('Error getting platform stats:', error);
+    return {
+      platform: {
+        totalConversations: 0,
+        totalMessages: 0,
+      },
+      user: null
+    };
+  }
+}
+
+/**
+ * Generate health recommendations based on test results
+ */
+function generateHealthRecommendations(testResults: any) {
+  const recommendations = [];
+
+  if (!testResults.allAgentsWorking) {
+    recommendations.push({
+      type: 'warning',
+      message: 'Some agents failed health checks. Check your Mastra configuration.',
+      action: 'Review environment variables and agent setup'
+    });
+  }
+
+  if (testResults.success && testResults.allAgentsWorking) {
+    recommendations.push({
+      type: 'success',
+      message: 'All agents are working properly!',
+      action: 'Your Smartlyte AI system is ready for users'
+    });
+  }
+
+  return recommendations;
 }

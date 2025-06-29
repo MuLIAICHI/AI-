@@ -16,18 +16,18 @@ export const financeGuideAgent = new Agent({
   model: openai("gpt-4o-mini"),
   
   // Memory configuration for financial learning conversations
-  memory: new Memory({
-    storage: new LibSQLStore({
-      url: 'file:../mastra.db',
-    }),
-    options: {
-      lastMessages: 20, // Important for tracking financial learning progress
-      semanticRecall: true, // Help connect related financial concepts
-      threads: {
-        generateTitle: true, // Organize financial learning topics
-      },
-    },
-  }),
+  // memory: new Memory({
+  //   storage: new LibSQLStore({
+  //     url: 'file:../mastra.db',
+  //   }),
+  //   options: {
+  //     lastMessages: 20, // Important for tracking financial learning progress
+  //     semanticRecall: true, // Help connect related financial concepts
+  //     threads: {
+  //       generateTitle: true, // Organize financial learning topics
+  //     },
+  //   },
+  // }),
   
   // Tools available to the Finance Guide
   tools: {

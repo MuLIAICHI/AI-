@@ -2,7 +2,7 @@
 import { Agent } from "@mastra/core/agent";
 import { openai } from "@ai-sdk/openai";
 import { Memory } from "@mastra/memory";
-import { LibSQLStore } from "@mastra/libsql";
+import { LibSQLStore } from "@mastra/libsql"
 import { digitalMentorPrompts } from "../prompts/domain-specific-prompts";
 import { languageTool, userProfileTool, learningModuleTool, assessmentTool } from "../tools";
 
@@ -16,18 +16,18 @@ export const digitalMentorAgent = new Agent({
   model: openai("gpt-4o-mini"),
   
   // Enhanced memory for learning conversations
-  memory: new Memory({
-    storage: new LibSQLStore({
-      url: 'file:../mastra.db',
-    }),
-    options: {
-      lastMessages: 20, // Remember more context for learning conversations
-      semanticRecall: true, // Help recall related learning topics
-      threads: {
-        generateTitle: true, // Auto-generate meaningful conversation titles
-      },
-    },
-  }),
+  // memory: new Memory({
+  //   storage: new LibSQLStore({
+  //     url: 'file:../mastra.db',
+  //   }),
+  //   options: {
+  //     lastMessages: 20, // Remember more context for learning conversations
+  //     semanticRecall: true, // Help recall related learning topics
+  //     threads: {
+  //       generateTitle: true, // Auto-generate meaningful conversation titles
+  //     },
+  //   },
+  // }),
   
   // Tools available to the Digital Mentor
   tools: {

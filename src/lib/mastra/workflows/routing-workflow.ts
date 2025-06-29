@@ -1,5 +1,5 @@
 // src/mastra/workflows/routing-workflow.ts
-import { createWorkflow, createStep } from '@mastra/core/workflows/vNext';
+import { createWorkflow, createStep } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { intelligentRoutingTool } from '../agents/router-agent';
 import { userProfileTool, assessmentTool } from '../tools';
@@ -161,7 +161,7 @@ routingWorkflow
           userMessage: inputData.userMessage,
           userId: inputData.userId,
           conversationHistory: inputData.conversationHistory,
-          userProfile: inputData.userProfile,
+          // userProfile: inputData.userProfile,
         },
         runtimeContext
       });
@@ -201,7 +201,7 @@ routingWorkflow
       }),
     }),
     outputSchema: z.object({
-      routeTo: z.enum(["digital_mentor", "finance_guide", "health_coach", "router"]),
+      routeTo: z.enum(["digital_mentor", "finance_guide", "health_coach", "router", "clarification_needed"]),
       confidence: z.number().min(0).max(1),
       reasoning: z.string(),
       contextForAgent: z.string(),

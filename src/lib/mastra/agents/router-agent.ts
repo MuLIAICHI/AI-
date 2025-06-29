@@ -202,18 +202,18 @@ export const routerAgent = new Agent({
   instructions: INTELLIGENT_ROUTER_PROMPT,
   model: openai("gpt-4o-mini"),
   
-  memory: new Memory({
-    storage: new LibSQLStore({
-      url: process.env.MASTRA_DB_URL || 'file:../mastra.db',
-    }),
-    options: {
-      lastMessages: 8,
-      semanticRecall: true,
-      threads: {
-        generateTitle: true,
-      },
-    },
-  }),
+  // memory: new Memory({
+  //   storage: new LibSQLStore({
+  //     url: process.env.MASTRA_DB_URL || 'file:../mastra.db',
+  //   }),
+  //   options: {
+  //     lastMessages: 8,
+  //     semanticRecall: true,
+  //     threads: {
+  //       generateTitle: true,
+  //     },
+  //   },
+  // }),
   
   tools: {
     languageTool,

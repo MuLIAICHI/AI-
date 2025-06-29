@@ -16,18 +16,18 @@ export const healthCoachAgent = new Agent({
   model: openai("gpt-4o-mini"),
   
   // Memory configuration for health learning conversations  
-  memory: new Memory({
-    storage: new LibSQLStore({
-      url: 'file:../mastra.db',
-    }),
-    options: {
-      lastMessages: 20, // Remember health-related learning context
-      semanticRecall: true, // Connect related health digital skills
-      threads: {
-        generateTitle: true, // Organize health learning sessions
-      },
-    },
-  }),
+  // memory: new Memory({
+  //   storage: new LibSQLStore({
+  //     url: 'file:../mastra.db',
+  //   }),
+  //   options: {
+  //     lastMessages: 20, // Remember health-related learning context
+  //     semanticRecall: true, // Connect related health digital skills
+  //     threads: {
+  //       generateTitle: true, // Organize health learning sessions
+  //     },
+  //   },
+  // }),
   
   // Tools available to the Health Coach
   tools: {

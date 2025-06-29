@@ -1,5 +1,4 @@
 import { Mastra } from '@mastra/core';
-import { openai } from '@mastra/core/openai';
 
 // ==========================================
 // MASTRA CONFIGURATION
@@ -11,10 +10,10 @@ if (!process.env.OPENAI_API_KEY) {
 }
 
 // OpenAI configuration
-export const ai = openai({
-  apiKey: process.env.OPENAI_API_KEY,
-  model: 'gpt-4-turbo-preview', // or 'gpt-3.5-turbo' for faster/cheaper responses
-});
+// export const ai = openai(
+//   'gpt-4-turbo', // or 'gpt-3.5-turbo' for faster/cheaper responses
+//   { apiKey: process.env.OPENAI_API_KEY }
+// );
 
 // ==========================================
 // AGENT TYPES & CONSTANTS
