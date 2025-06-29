@@ -47,20 +47,24 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+// FIXED: Updated Chat interface to match new schema
 interface Chat {
-  id: number;
+  id: string; // CHANGED: UUID string instead of number
   title: string;
   createdAt: Date;
+  updatedAt?: Date; // ADDED: New field from API
   latestMessage?: string;
   lastMessageAt: Date;
   lastMessageRole?: 'user' | 'assistant';
+  messageCount?: number; // ADDED: New field from API
 }
 
+// FIXED: Updated props to use string IDs
 interface ChatSidebarProps {
   className?: string;
-  onChatSelect?: (chatId: number) => void;
+  onChatSelect?: (chatId: string) => void; // CHANGED: string instead of number
   onNewChat?: () => void;
-  currentChatId?: number | null;
+  currentChatId?: string | null; // CHANGED: string instead of number
   isMobile?: boolean;
   isCollapsed?: boolean;
 }
@@ -78,6 +82,7 @@ type AgentFilter = keyof typeof AGENT_FILTERS;
 
 /**
  * Chat history sidebar component for managing conversations
+ * UPDATED: Compatible with new UUID-based conversation schema
  */
 export function ChatSidebar({
   className,
@@ -97,11 +102,11 @@ export function ChatSidebar({
     error,
   } = useChat();
 
-  // Local state
+  // FIXED: Updated state types to use string IDs
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<AgentFilter>('all');
-  const [chatToDelete, setChatToDelete] = useState<number | null>(null);
-  const [editingChat, setEditingChat] = useState<{ id: number; title: string } | null>(null);
+  const [chatToDelete, setChatToDelete] = useState<string | null>(null); // CHANGED: string
+  const [editingChat, setEditingChat] = useState<{ id: string; title: string } | null>(null); // CHANGED: string
   const [sortBy, setSortBy] = useState<'recent' | 'alphabetical' | 'oldest'>('recent');
 
   // Load chats on mount
@@ -109,9 +114,14 @@ export function ChatSidebar({
     loadChats();
   }, [loadChats]);
 
-  // Filtered and sorted chats
+  // Filtered and sorted chats (FIXED: Now handles undefined chats safely)
   const filteredChats = useMemo(() => {
-    let filtered = chats;
+    // CRITICAL FIX: Handle undefined chats array
+    if (!chats || !Array.isArray(chats)) {
+      return [];
+    }
+
+    let filtered = [...chats]; // Create a copy to avoid mutating original
 
     // Apply search filter
     if (searchQuery.trim()) {
@@ -175,8 +185,8 @@ export function ChatSidebar({
     return filtered;
   }, [chats, searchQuery, selectedFilter, sortBy]);
 
-  // Handle chat selection
-  const handleChatSelect = async (chatId: number) => {
+  // FIXED: Updated handler signatures to use string IDs
+  const handleChatSelect = async (chatId: string) => {
     try {
       await loadChat(chatId);
       onChatSelect?.(chatId);
@@ -191,8 +201,8 @@ export function ChatSidebar({
     onNewChat?.();
   };
 
-  // Handle chat deletion
-  const handleDeleteChat = async (chatId: number) => {
+  // FIXED: Updated to use string ID
+  const handleDeleteChat = async (chatId: string) => {
     try {
       await deleteChat(chatId);
       setChatToDelete(null);
@@ -251,7 +261,7 @@ export function ChatSidebar({
         </Button>
         
         <div className="flex flex-col gap-2">
-          {chats.slice(0, 8).map((chat) => {
+          {filteredChats.slice(0, 8).map((chat) => {
             const agent = getChatAgent(chat);
             const agentConfig = AGENT_FILTERS[agent];
             const IconComponent = agentConfig.icon;
@@ -283,7 +293,7 @@ export function ChatSidebar({
       {/* Header */}
       <div className="p-4 border-b">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-lg">Chats</h2>
+          <h2 className="font-semibold text-lg">Conversations</h2>
           <Button
             variant="outline"
             size="sm"
@@ -299,7 +309,7 @@ export function ChatSidebar({
         <div className="relative mb-3">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
           <Input
-            placeholder="Search chats..."
+            placeholder="Search conversations..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 pr-8"
@@ -365,7 +375,7 @@ export function ChatSidebar({
         {/* Filter Summary */}
         {(searchQuery || selectedFilter !== 'all') && (
           <div className="text-xs text-muted-foreground">
-            {filteredChats.length} of {chats.length} chats
+            {filteredChats.length} of {chats?.length || 0} conversations
             {searchQuery && ` matching "${searchQuery}"`}
           </div>
         )}
@@ -374,11 +384,11 @@ export function ChatSidebar({
       {/* Chat List */}
       <ScrollArea className="flex-1">
         <div className="p-2 space-y-2">
-          {isLoading && chats.length === 0 ? (
+          {isLoading && (!chats || chats.length === 0) ? (
             <div className="flex items-center justify-center py-8">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Loading chats...</span>
+                <span>Loading conversations...</span>
               </div>
             </div>
           ) : filteredChats.length === 0 ? (
@@ -386,13 +396,13 @@ export function ChatSidebar({
               <MessageSquare className="w-12 h-12 text-muted-foreground/50 mb-3" />
               <p className="text-sm text-muted-foreground mb-2">
                 {searchQuery || selectedFilter !== 'all' 
-                  ? 'No chats match your filters' 
-                  : 'No chats yet'
+                  ? 'No conversations match your filters' 
+                  : 'No conversations yet'
                 }
               </p>
               {!searchQuery && selectedFilter === 'all' && (
                 <Button variant="outline" size="sm" onClick={handleNewChat}>
-                  Start your first chat
+                  Start your first conversation
                 </Button>
               )}
             </div>
@@ -407,7 +417,7 @@ export function ChatSidebar({
                 <Card
                   key={chat.id}
                   className={cn(
-                    "cursor-pointer transition-all duration-200 hover:shadow-sm",
+                    "cursor-pointer transition-all duration-200 hover:shadow-sm group",
                     isActive 
                       ? "ring-2 ring-primary ring-offset-1 bg-primary/5" 
                       : "hover:bg-muted/50"
@@ -422,6 +432,11 @@ export function ChatSidebar({
                           <h3 className="font-medium text-sm truncate">
                             {chat.title}
                           </h3>
+                          {chat.messageCount && chat.messageCount > 0 && (
+                            <Badge variant="secondary" className="text-xs px-1 py-0">
+                              {chat.messageCount}
+                            </Badge>
+                          )}
                         </div>
                         
                         {chat.latestMessage && (
@@ -507,9 +522,9 @@ export function ChatSidebar({
       <AlertDialog open={!!chatToDelete} onOpenChange={() => setChatToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Chat</AlertDialogTitle>
+            <AlertDialogTitle>Delete Conversation</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this chat? This action cannot be undone.
+              Are you sure you want to delete this conversation? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -523,6 +538,23 @@ export function ChatSidebar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit Dialog - Coming Soon */}
+      {editingChat && (
+        <AlertDialog open={!!editingChat} onOpenChange={() => setEditingChat(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Rename Conversation</AlertDialogTitle>
+              <AlertDialogDescription>
+                Conversation renaming functionality coming soon!
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Close</AlertDialogCancel>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }

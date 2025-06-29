@@ -4,22 +4,26 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 
-// Types for our chat system
+// CORRECTED: Types matching your actual schema
 interface Message {
   id: string;
   content: string;
   role: 'user' | 'assistant';
   createdAt: Date;
   agentName?: string;
+  agentType?: 'router' | 'digital_mentor' | 'finance_guide' | 'health_coach';
 }
 
+// CORRECTED: Chat interface with string UUID IDs
 interface Chat {
-  id: number;
+  id: string; // ✅ FIXED: UUID string (matches your schema)
   title: string;
   createdAt: Date;
+  updatedAt?: Date;
   latestMessage?: string;
   lastMessageAt: Date;
   lastMessageRole?: 'user' | 'assistant';
+  messageCount?: number;
 }
 
 interface ChatOptions {
@@ -27,40 +31,41 @@ interface ChatOptions {
   stream?: boolean;
 }
 
+// CORRECTED: Return types with string IDs
 interface UseChatReturn {
   // State
   messages: Message[];
   chats: Chat[];
-  currentChatId: number | null;
+  currentChatId: string | null; // ✅ FIXED: string instead of number
   isLoading: boolean;
   isStreaming: boolean;
   error: string | null;
   
-  // Actions
+  // Actions - CORRECTED: All use string IDs
   sendMessage: (content: string, options?: ChatOptions) => Promise<void>;
   loadChats: () => Promise<void>;
-  loadChat: (chatId: number) => Promise<void>;
+  loadChat: (chatId: string) => Promise<void>; // ✅ FIXED: string parameter
   startNewChat: () => void;
-  deleteChat: (chatId: number) => Promise<void>;
+  deleteChat: (chatId: string) => Promise<void>; // ✅ FIXED: string parameter
   stopStreaming: () => void;
   clearError: () => void;
   
   // Utilities
   retryLastMessage: () => Promise<void>;
-  exportChat: (chatId: number) => Promise<string>;
+  exportChat: (chatId: string) => Promise<string>; // ✅ FIXED: string parameter
 }
 
 /**
  * Custom hook for managing chat functionality with Smartlyte AI agents
- * Handles streaming responses, chat history, and state management
+ * ✅ CORRECTED: Now matches your conversations schema exactly
  */
 export function useChat(): UseChatReturn {
   const { user } = useUser();
 
-  // Core state
+  // CORRECTED: State with string IDs
   const [messages, setMessages] = useState<Message[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
-  const [currentChatId, setCurrentChatId] = useState<number | null>(null);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null); // ✅ FIXED: string
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,70 +89,87 @@ export function useChat(): UseChatReturn {
   }, []);
 
   /**
-   * Load user's chat list from API
+   * ✅ CORRECTED: Load conversations from correct endpoint
    */
   const loadChats = useCallback(async () => {
     if (!user) return;
 
     try {
       setError(null);
-      const response = await fetch('/api/chat?limit=50', {
+      // ✅ FIXED: Correct endpoint
+      const response = await fetch('/api/chats?limit=50&includePreview=true', {
         method: 'GET',
       });
 
       if (!response.ok) {
-        throw new Error('Failed to load chats');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}: Failed to load conversations`);
       }
 
       const data = await response.json();
       if (data.success) {
-        setChats(data.chats);
+        // ✅ FIXED: Expecting 'conversations' not 'chats'
+        const transformedChats: Chat[] = (data.conversations || []).map((conv: any) => ({
+          id: conv.id, // Already UUID string
+          title: conv.title,
+          createdAt: new Date(conv.createdAt),
+          updatedAt: conv.updatedAt ? new Date(conv.updatedAt) : undefined,
+          lastMessageAt: conv.updatedAt ? new Date(conv.updatedAt) : new Date(conv.createdAt),
+          latestMessage: conv.lastMessage?.content || undefined,
+          lastMessageRole: conv.lastMessage?.role || undefined,
+          messageCount: conv.messageCount || 0,
+        }));
+        
+        setChats(transformedChats);
       } else {
-        throw new Error(data.message || 'Failed to load chats');
+        throw new Error(data.message || 'Failed to load conversations');
       }
     } catch (error) {
-      console.error('Failed to load chats:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load chats');
+      console.error('Failed to load conversations:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load conversations');
     }
   }, [user]);
 
   /**
-   * Load specific chat and its messages
+   * ✅ CORRECTED: Load specific conversation with string UUID
    */
-  const loadChat = useCallback(async (chatId: number) => {
+  const loadChat = useCallback(async (chatId: string) => {
     if (!user) return;
 
     try {
       setIsLoading(true);
       setError(null);
       
+      // ✅ FIXED: Use UUID string
       const response = await fetch(`/api/chat/${chatId}`);
       if (!response.ok) {
         if (response.status === 404) {
-          throw new Error('Chat not found');
+          throw new Error('Conversation not found');
         }
-        throw new Error('Failed to load chat');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to load conversation');
       }
 
       const data = await response.json();
       if (data.success) {
         // Transform messages to match our interface
-        const transformedMessages: Message[] = data.messages.map((msg: any) => ({
-          id: msg.id.toString(),
+        const transformedMessages: Message[] = (data.messages || []).map((msg: any) => ({
+          id: msg.id,
           content: msg.content,
           role: msg.role,
-          createdAt: new Date(msg.createdAt),
+          createdAt: new Date(msg.timestamp || msg.createdAt),
           agentName: msg.agentName,
+          agentType: msg.agentType,
         }));
 
         setMessages(transformedMessages);
-        setCurrentChatId(chatId);
+        setCurrentChatId(chatId); // Now string UUID
       } else {
-        throw new Error(data.message || 'Failed to load chat');
+        throw new Error(data.message || 'Failed to load conversation');
       }
     } catch (error) {
-      console.error('Failed to load chat:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load chat');
+      console.error('Failed to load conversation:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load conversation');
     } finally {
       setIsLoading(false);
     }
@@ -163,19 +185,21 @@ export function useChat(): UseChatReturn {
   }, []);
 
   /**
-   * Delete a chat session
+   * ✅ CORRECTED: Delete conversation with string UUID
    */
-  const deleteChat = useCallback(async (chatId: number) => {
+  const deleteChat = useCallback(async (chatId: string) => {
     if (!user) return;
 
     try {
       setError(null);
-      const response = await fetch(`/api/chat?chatId=${chatId}`, {
+      // ✅ FIXED: Use UUID string
+      const response = await fetch(`/api/chat/${chatId}`, {
         method: 'DELETE',
       });
 
       if (!response.ok) {
-        throw new Error('Failed to delete chat');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to delete conversation');
       }
 
       const data = await response.json();
@@ -188,11 +212,11 @@ export function useChat(): UseChatReturn {
           startNewChat();
         }
       } else {
-        throw new Error(data.message || 'Failed to delete chat');
+        throw new Error(data.message || 'Failed to delete conversation');
       }
     } catch (error) {
-      console.error('Failed to delete chat:', error);
-      setError(error instanceof Error ? error.message : 'Failed to delete chat');
+      console.error('Failed to delete conversation:', error);
+      setError(error instanceof Error ? error.message : 'Failed to delete conversation');
     }
   }, [user, currentChatId, startNewChat]);
 
@@ -207,7 +231,7 @@ export function useChat(): UseChatReturn {
   }, []);
 
   /**
-   * Send a message to the AI and handle the response
+   * ✅ CORRECTED: Send message with proper conversation ID handling
    */
   const sendMessage = useCallback(async (
     content: string, 
@@ -239,12 +263,12 @@ export function useChat(): UseChatReturn {
     setIsStreaming(true);
 
     try {
-      // Prepare request payload
+      // ✅ FIXED: Use conversationId (string UUID)
       const payload = {
         message: content.trim(),
-        chatId: currentChatId,
+        conversationId: currentChatId, // Now string UUID
         agentId: options.agentId,
-        stream: options.stream !== false, // Default to streaming
+        stream: options.stream !== false,
       };
 
       const response = await fetch('/api/chat', {
@@ -257,36 +281,32 @@ export function useChat(): UseChatReturn {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.message || 'Failed to send message');
       }
 
-      if (payload.stream && response.headers.get('content-type')?.includes('text/event-stream')) {
-        // Handle streaming response
-        await handleStreamingResponse(response, abortController);
-      } else {
-        // Handle non-streaming response
-        const data = await response.json();
-        if (data.success) {
-          const assistantMessage: Message = {
-            id: `assistant_${Date.now()}_${Math.random()}`,
-            content: data.response,
-            role: 'assistant',
-            createdAt: new Date(),
-            agentName: data.agentName,
-          };
+      // Handle non-streaming response for now
+      const data = await response.json();
+      if (data.success) {
+        const assistantMessage: Message = {
+          id: `assistant_${Date.now()}_${Math.random()}`,
+          content: data.response,
+          role: 'assistant',
+          createdAt: new Date(),
+          agentName: data.agentName,
+          agentType: data.agentType,
+        };
 
-          setMessages(prev => [...prev, assistantMessage]);
-          
-          // Update current chat ID if it's a new chat
-          if (data.chatId && !currentChatId) {
-            setCurrentChatId(data.chatId);
-            // Refresh chats list to include the new chat
-            loadChats();
-          }
-        } else {
-          throw new Error(data.message || 'Failed to get response');
+        setMessages(prev => [...prev, assistantMessage]);
+        
+        // ✅ FIXED: Update current conversation ID (now string UUID)
+        if (data.conversationId && !currentChatId) {
+          setCurrentChatId(data.conversationId);
+          // Refresh conversations list
+          loadChats();
         }
+      } else {
+        throw new Error(data.message || 'Failed to get response');
       }
 
     } catch (error) {
@@ -313,86 +333,6 @@ export function useChat(): UseChatReturn {
   }, [user, currentChatId, loadChats]);
 
   /**
-   * Handle streaming server-sent events response
-   */
-  const handleStreamingResponse = async (
-    response: Response, 
-    abortController: AbortController
-  ) => {
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('No response stream available');
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let assistantMessage: Message = {
-      id: `assistant_${Date.now()}_${Math.random()}`,
-      content: '',
-      role: 'assistant',
-      createdAt: new Date(),
-    };
-
-    // Add empty assistant message that we'll update
-    setMessages(prev => [...prev, assistantMessage]);
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done || abortController.signal.aborted) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim();
-            if (data === '[DONE]') {
-              setIsStreaming(false);
-              // Refresh chats list after completion
-              loadChats();
-              return;
-            }
-
-            try {
-              const parsed = JSON.parse(data);
-              
-              if (parsed.type === 'metadata') {
-                // Update chat ID and agent info
-                if (parsed.chatId && !currentChatId) {
-                  setCurrentChatId(parsed.chatId);
-                }
-                assistantMessage.agentName = parsed.agentName;
-              } else if (parsed.type === 'content' && parsed.content) {
-                // Update message content
-                assistantMessage = {
-                  ...assistantMessage,
-                  content: assistantMessage.content + parsed.content,
-                  agentName: parsed.agentName || assistantMessage.agentName,
-                };
-
-                setMessages(prev => 
-                  prev.map(msg => 
-                    msg.id === assistantMessage.id ? assistantMessage : msg
-                  )
-                );
-              } else if (parsed.type === 'error') {
-                throw new Error(parsed.error || 'Streaming error occurred');
-              }
-            } catch (parseError) {
-              console.error('Failed to parse SSE data:', parseError);
-              // Continue processing other lines
-            }
-          }
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-  };
-
-  /**
    * Retry the last message that was sent
    */
   const retryLastMessage = useCallback(async () => {
@@ -403,24 +343,22 @@ export function useChat(): UseChatReturn {
   }, [sendMessage]);
 
   /**
-   * Export chat as text format
+   * ✅ CORRECTED: Export conversation with string UUID
    */
-  const exportChat = useCallback(async (chatId: number): Promise<string> => {
+  const exportChat = useCallback(async (chatId: string): Promise<string> => {
     const chat = chats.find(c => c.id === chatId);
-    if (!chat) throw new Error('Chat not found');
+    if (!chat) throw new Error('Conversation not found');
 
     // If it's the current chat, use current messages
     let chatMessages = messages;
     
     // If it's a different chat, load its messages
     if (chatId !== currentChatId) {
-      // This would need to call the API to get messages
-      // For now, return a placeholder
-      return `Chat: ${chat.title}\nExport functionality coming soon...`;
+      return `Conversation: ${chat.title}\nExport functionality coming soon...`;
     }
 
     const exportText = [
-      `Chat: ${chat.title}`,
+      `Conversation: ${chat.title}`,
       `Date: ${chat.createdAt.toLocaleDateString()}`,
       `Messages: ${chatMessages.length}`,
       '',

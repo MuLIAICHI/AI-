@@ -2,15 +2,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { db } from '@/lib/db';
-import { conversations, messages } from '@/lib/db/schema'; // ✅ Fixed: Use NEW schema
-import { eq, and, desc, asc, count, sql } from 'drizzle-orm';
+import { conversations, messages } from '@/lib/db/schema';
+import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 export const runtime = 'edge';
 
-// Validation schemas - Updated for UUID support
+// Validation schemas
 const chatIdParamSchema = z.object({
-  chatId: z.string().uuid('Chat ID must be a valid UUID') // ✅ Fixed: UUID instead of number
+  chatId: z.string().uuid('Invalid conversation ID format')
 });
 
 const messagesQuerySchema = z.object({
@@ -28,8 +28,8 @@ const messagesQuerySchema = z.object({
 });
 
 /**
- * GET /api/chat/[chatId] - Get specific chat with messages
- * Returns chat details and message history for the specified conversation
+ * GET /api/chat/[chatId] - Get specific conversation with messages
+ * Returns conversation details and message history for the specified conversation
  */
 export async function GET(
   request: NextRequest,
@@ -37,27 +37,25 @@ export async function GET(
 ) {
   try {
     // 1. Authenticate user
-    const authResult = await auth(); // ✅ Fixed: await auth() properly
-    const userId = authResult?.userId; // ✅ Fixed: extract userId from auth result
-    
+    const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ 
         error: 'Unauthorized',
-        message: 'Please sign in to view chats' 
+        message: 'Please sign in to view conversations' 
       }, { status: 401 });
     }
 
-    // 2. Validate chat ID parameter
+    // 2. Validate conversation ID parameter
     const paramValidation = chatIdParamSchema.safeParse(params);
     if (!paramValidation.success) {
       return NextResponse.json({
-        error: 'Invalid chat ID',
-        message: 'Chat ID must be a valid UUID',
+        error: 'Invalid conversation ID',
+        message: 'Conversation ID must be a valid UUID format',
         details: paramValidation.error.errors
       }, { status: 400 });
     }
 
-    const chatId = paramValidation.data.chatId; // ✅ Fixed: UUID string, not number
+    const conversationId = paramValidation.data.chatId;
 
     // 3. Parse query parameters
     const { searchParams } = new URL(request.url);
@@ -81,115 +79,90 @@ export async function GET(
     const [conversation] = await db
       .select({
         id: conversations.id,
-        title: conversations.title, // ✅ Fixed: use title field
+        title: conversations.title,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
         userId: conversations.userId,
-        summary: conversations.summary,
       })
-      .from(conversations) // ✅ Fixed: use conversations table
+      .from(conversations)
       .where(and(
-        eq(conversations.id, chatId), // ✅ Fixed: UUID comparison
+        eq(conversations.id, conversationId),
         eq(conversations.userId, userId)
       ))
       .limit(1);
 
     if (!conversation) {
       return NextResponse.json({
-        error: 'Chat not found',
-        message: 'The requested chat session could not be found or you do not have access to it'
+        error: 'Conversation not found',
+        message: 'The requested conversation could not be found or you do not have access to it'
       }, { status: 404 });
     }
 
-    // 5. Get messages for this conversation
-    const chatMessages = await db
+    // 5. Get messages with pagination
+    const orderColumn = order === 'desc' ? desc(messages.createdAt) : asc(messages.createdAt);
+    
+    const conversationMessages = await db
       .select({
         id: messages.id,
         content: messages.content,
         role: messages.role,
+        agentType: messages.agentType,
         createdAt: messages.createdAt,
-        agentType: messages.agentType, // ✅ New: include agent type
       })
       .from(messages)
-      .where(eq(messages.conversationId, chatId)) // ✅ Fixed: use conversationId
-      .orderBy(order === 'desc' ? desc(messages.createdAt) : asc(messages.createdAt))
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(orderColumn)
       .limit(limit)
       .offset(offset);
 
-    // 6. Get total message count for pagination
-    const [messageCount] = await db
-      .select({ count: count(messages.id) })
-      .from(messages)
-      .where(eq(messages.conversationId, chatId)); // ✅ Fixed: use conversationId
-
-    // 7. Get agent usage statistics for this conversation
-    const agentStats = await db
-      .select({
-        role: messages.role,
-        agentType: messages.agentType,
-        count: count(messages.id)
+    // 6. Get total message count
+    const [messageCountResult] = await db
+      .select({ 
+        count: sql<number>`count(*)`.as('count') 
       })
       .from(messages)
-      .where(eq(messages.conversationId, chatId)) // ✅ Fixed: use conversationId
-      .groupBy(messages.role, messages.agentType);
+      .where(eq(messages.conversationId, conversationId));
 
-    const stats = {
-      totalMessages: messageCount?.count || 0,
-      userMessages: agentStats
-        .filter(s => s.role === 'user')
-        .reduce((sum, s) => sum + s.count, 0),
-      assistantMessages: agentStats
-        .filter(s => s.role === 'assistant')
-        .reduce((sum, s) => sum + s.count, 0),
-      agentBreakdown: agentStats
-        .filter(s => s.role === 'assistant' && s.agentType)
-        .reduce((acc, s) => {
-          acc[s.agentType!] = s.count;
-          return acc;
-        }, {} as Record<string, number>)
-    };
+    const totalMessages = parseInt(messageCountResult?.count?.toString() || '0');
 
-    // 8. Transform messages to include helpful metadata
-    const transformedMessages = chatMessages.map(message => ({
-      id: message.id,
-      content: message.content,
-      role: message.role,
-      createdAt: message.createdAt,
-      agentType: message.agentType,
-      // Add word count for analytics
-      wordCount: message.content.split(/\s+/).length,
-      // Add character count
-      characterCount: message.content.length,
+    // 7. Transform messages for response
+    const transformedMessages = conversationMessages.map(msg => ({
+      id: msg.id,
+      content: msg.content,
+      role: msg.role,
+      agentType: msg.agentType || null,
+      timestamp: msg.createdAt.toISOString(),
+      createdAt: msg.createdAt.toISOString(), // For compatibility
+      characterCount: msg.content.length,
     }));
 
     return NextResponse.json({
       success: true,
-      conversation: { // ✅ Fixed: renamed from 'chat' to 'conversation'
+      conversation: {
         id: conversation.id,
         title: conversation.title,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-        summary: conversation.summary,
+        createdAt: conversation.createdAt.toISOString(),
+        updatedAt: conversation.updatedAt?.toISOString() || conversation.createdAt.toISOString(),
+        messageCount: totalMessages,
       },
       messages: transformedMessages,
       pagination: {
         limit,
         offset,
-        total: stats.totalMessages,
-        hasMore: offset + limit < stats.totalMessages,
-        currentPage: Math.floor(offset / limit) + 1,
-        totalPages: Math.ceil(stats.totalMessages / limit),
+        total: totalMessages,
+        hasMore: offset + limit < totalMessages,
+        nextOffset: offset + limit < totalMessages ? offset + limit : null,
       },
       statistics: {
-        ...stats,
-        averageMessageLength: stats.totalMessages > 0 
-          ? Math.round(transformedMessages.reduce((sum, msg) => sum + msg.characterCount, 0) / transformedMessages.length)
+        totalCharacters: transformedMessages.reduce((sum, msg) => sum + msg.characterCount, 0),
+        averageMessageLength: transformedMessages.length > 0 ? 
+          Math.round(transformedMessages.reduce((sum, msg) => sum + msg.characterCount, 0) / transformedMessages.length) 
           : 0,
       },
       metadata: {
         requestedAt: new Date().toISOString(),
         order,
-        userId: userId.substring(0, 8) + '...', // Partial for privacy
+        userId: userId, // For debugging/analytics
       }
     });
 
@@ -215,30 +188,27 @@ export async function PATCH(
 ) {
   try {
     // 1. Authenticate user
-    const authResult = await auth(); // ✅ Fixed: await auth() properly
-    const userId = authResult?.userId; // ✅ Fixed: extract userId from auth result
-    
+    const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ 
         error: 'Unauthorized' 
       }, { status: 401 });
     }
 
-    // 2. Validate chat ID
+    // 2. Validate conversation ID
     const paramValidation = chatIdParamSchema.safeParse(params);
     if (!paramValidation.success) {
       return NextResponse.json({
-        error: 'Invalid chat ID',
+        error: 'Invalid conversation ID',
         details: paramValidation.error.errors
       }, { status: 400 });
     }
 
-    const chatId = paramValidation.data.chatId; // ✅ Fixed: UUID string
+    const conversationId = paramValidation.data.chatId;
 
     // 3. Parse and validate request body
     const updateSchema = z.object({
       title: z.string().min(1, 'Title cannot be empty').max(200, 'Title too long').optional(),
-      summary: z.string().max(500, 'Summary too long').optional(),
     });
 
     const body = await request.json();
@@ -252,14 +222,14 @@ export async function PATCH(
       }, { status: 400 });
     }
 
-    const { title, summary } = validation.data;
+    const { title } = validation.data;
 
     // 4. Verify conversation ownership
     const [existingConversation] = await db
       .select()
-      .from(conversations) // ✅ Fixed: use conversations table
+      .from(conversations)
       .where(and(
-        eq(conversations.id, chatId), // ✅ Fixed: UUID comparison
+        eq(conversations.id, conversationId),
         eq(conversations.userId, userId)
       ))
       .limit(1);
@@ -272,15 +242,9 @@ export async function PATCH(
     }
 
     // 5. Update conversation
-    const updateData: any = {
-      updatedAt: new Date(), // Always update timestamp
-    };
-    
+    const updateData: any = { updatedAt: new Date() };
     if (title !== undefined) {
       updateData.title = title;
-    }
-    if (summary !== undefined) {
-      updateData.summary = summary;
     }
 
     if (Object.keys(updateData).length === 1) { // Only updatedAt
@@ -291,20 +255,19 @@ export async function PATCH(
     }
 
     const [updatedConversation] = await db
-      .update(conversations) // ✅ Fixed: use conversations table
+      .update(conversations)
       .set(updateData)
-      .where(eq(conversations.id, chatId)) // ✅ Fixed: UUID comparison
+      .where(eq(conversations.id, conversationId))
       .returning();
 
     return NextResponse.json({
       success: true,
       message: 'Conversation updated successfully',
-      conversation: { // ✅ Fixed: renamed from 'chat'
+      conversation: {
         id: updatedConversation.id,
         title: updatedConversation.title,
-        summary: updatedConversation.summary,
-        createdAt: updatedConversation.createdAt,
-        updatedAt: updatedConversation.updatedAt,
+        createdAt: updatedConversation.createdAt.toISOString(),
+        updatedAt: updatedConversation.updatedAt?.toISOString(),
       }
     });
 
@@ -327,32 +290,30 @@ export async function DELETE(
 ) {
   try {
     // 1. Authenticate user
-    const authResult = await auth(); // ✅ Fixed: await auth() properly
-    const userId = authResult?.userId; // ✅ Fixed: extract userId from auth result
-    
+    const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ 
         error: 'Unauthorized' 
       }, { status: 401 });
     }
 
-    // 2. Validate chat ID
+    // 2. Validate conversation ID
     const paramValidation = chatIdParamSchema.safeParse(params);
     if (!paramValidation.success) {
       return NextResponse.json({
-        error: 'Invalid chat ID',
+        error: 'Invalid conversation ID',
         details: paramValidation.error.errors
       }, { status: 400 });
     }
 
-    const chatId = paramValidation.data.chatId; // ✅ Fixed: UUID string
+    const conversationId = paramValidation.data.chatId;
 
     // 3. Verify conversation ownership
     const [conversation] = await db
       .select()
-      .from(conversations) // ✅ Fixed: use conversations table
+      .from(conversations)
       .where(and(
-        eq(conversations.id, chatId), // ✅ Fixed: UUID comparison
+        eq(conversations.id, conversationId),
         eq(conversations.userId, userId)
       ))
       .limit(1);
@@ -366,27 +327,29 @@ export async function DELETE(
 
     // 4. Get message count before deletion (for confirmation)
     const [messageCount] = await db
-      .select({ count: count(messages.id) })
+      .select({ 
+        count: sql<number>`count(*)`.as('count') 
+      })
       .from(messages)
-      .where(eq(messages.conversationId, chatId)); // ✅ Fixed: use conversationId
+      .where(eq(messages.conversationId, conversationId));
 
-    const deletedMessageCount = messageCount?.count || 0;
+    const deletedMessageCount = parseInt(messageCount?.count?.toString() || '0');
 
     // 5. Delete messages first (foreign key constraint)
     await db
       .delete(messages)
-      .where(eq(messages.conversationId, chatId)); // ✅ Fixed: use conversationId
+      .where(eq(messages.conversationId, conversationId));
 
     // 6. Delete conversation
     await db
-      .delete(conversations) // ✅ Fixed: use conversations table
-      .where(eq(conversations.id, chatId)); // ✅ Fixed: UUID comparison
+      .delete(conversations)
+      .where(eq(conversations.id, conversationId));
 
     return NextResponse.json({
       success: true,
       message: 'Conversation deleted successfully',
-      deletedConversation: { // ✅ Fixed: renamed from 'deletedChat'
-        id: chatId,
+      deletedConversation: {
+        id: conversation.id,
         title: conversation.title,
         messagesDeleted: deletedMessageCount,
       }
@@ -396,33 +359,7 @@ export async function DELETE(
     console.error('Delete conversation error:', error);
     return NextResponse.json({
       error: 'Failed to delete conversation',
-      message: 'Could not delete the conversation session'
+      message: 'Could not delete the conversation'
     }, { status: 500 });
-  }
-}
-
-/**
- * POST /api/chat/[chatId] - Add message to existing conversation
- * Alternative endpoint for adding messages to specific conversations
- */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { chatId: string } }
-) {
-  try {
-    // For now, redirect to main chat endpoint
-    // This could be implemented for specific use cases
-    return NextResponse.json({
-      error: 'Use main chat endpoint',
-      message: 'Please use /api/chat for sending messages',
-      suggestion: 'Include conversationId in the request body when calling /api/chat'
-    }, { status: 302 });
-
-  } catch (error) {
-    console.error('Post to conversation error:', error);
-    return NextResponse.json({
-      error: 'Not implemented',
-      message: 'This endpoint is not yet implemented'
-    }, { status: 501 });
   }
 }
