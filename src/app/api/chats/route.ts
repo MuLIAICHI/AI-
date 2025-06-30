@@ -8,35 +8,35 @@ import { z } from 'zod';
 
 export const runtime = 'edge';
 
-// Validation schemas
+// ✅ FIXED: Validation schema with proper null handling
 const conversationsQuerySchema = z.object({
   // Pagination
-  limit: z.string().optional().transform(val => {
+  limit: z.string().nullish().transform(val => {
     if (!val) return 20;
     const num = parseInt(val);
     return isNaN(num) ? 20 : Math.min(Math.max(num, 1), 100);
   }),
-  offset: z.string().optional().transform(val => {
+  offset: z.string().nullish().transform(val => {
     if (!val) return 0;
     const num = parseInt(val);
     return isNaN(num) ? 0 : Math.max(num, 0);
   }),
   
   // Sorting
-  sortBy: z.enum(['createdAt', 'updatedAt', 'title', 'messageCount']).optional().default('updatedAt'),
-  sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
+  sortBy: z.enum(['createdAt', 'updatedAt', 'title', 'messageCount']).nullish().default('updatedAt'),
+  sortOrder: z.enum(['asc', 'desc']).nullish().default('desc'),
   
   // Search and filtering
-  search: z.string().max(200).optional(),
-  dateFrom: z.string().datetime().optional(),
-  dateTo: z.string().datetime().optional(),
-  hasMessages: z.enum(['true', 'false']).optional().transform(val => 
+  search: z.string().max(200).nullish(),
+  dateFrom: z.string().datetime().nullish(),
+  dateTo: z.string().datetime().nullish(),
+  hasMessages: z.enum(['true', 'false']).nullish().transform(val => 
     val === 'true' ? true : val === 'false' ? false : undefined
   ),
   
   // Include options
-  includePreview: z.enum(['true', 'false']).optional().default('true').transform(val => val === 'true'),
-  includeStats: z.enum(['true', 'false']).optional().default('false').transform(val => val === 'true'),
+  includePreview: z.enum(['true', 'false']).nullish().default('true').transform(val => val === 'true'),
+  includeStats: z.enum(['true', 'false']).nullish().default('false').transform(val => val === 'true'),
 });
 
 /**
@@ -189,7 +189,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      conversations: transformedConversations, // Changed from 'chats' to 'conversations'
+      conversations: transformedConversations,
       pagination: {
         limit,
         offset,

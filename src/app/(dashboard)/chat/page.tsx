@@ -31,7 +31,7 @@ import { cn } from '@/lib/utils';
 /**
  * Main chat page component that combines sidebar and chat window
  * Provides complete chat experience with mobile responsiveness
- * UPDATED: Compatible with new UUID-based conversation schema
+ * ✅ FIXED: Now includes ChatWindow in main content area
  */
 export default function ChatPage() {
   const { user, isLoaded } = useUser();
@@ -97,40 +97,45 @@ export default function ChatPage() {
       <div className="flex items-center justify-center h-screen">
         <div className="flex flex-col items-center gap-4 text-muted-foreground">
           <div className="relative">
-            <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center animate-pulse">
+            <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
               <Brain className="w-6 h-6 text-white" />
             </div>
-            <Loader2 className="w-6 h-6 animate-spin absolute -bottom-1 -right-1 text-blue-500" />
+            <div className="absolute -top-1 -right-1">
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+            </div>
           </div>
           <div className="text-center">
             <p className="font-medium">Loading Smartlyte AI...</p>
-            <p className="text-sm text-muted-foreground">Initializing your AI learning experience</p>
+            <p className="text-sm">Preparing your learning experience</p>
           </div>
         </div>
       </div>
     );
   }
 
-  // Redirect if not authenticated (shouldn't happen due to middleware)
+  // User not signed in
   if (!user) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-        <Card className="max-w-md mx-4 shadow-lg">
-          <CardContent className="p-8 text-center">
-            <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Brain className="w-8 h-8 text-white" />
+      <div className="flex items-center justify-center h-screen">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6">
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                <Brain className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold">Welcome to Smartlyte AI</h2>
+                <p className="text-muted-foreground mt-1">
+                  Please sign in to start your learning journey
+                </p>
+              </div>
+              <Button 
+                onClick={() => window.location.href = '/sign-in'}
+                className="w-full"
+              >
+                Sign In to Continue
+              </Button>
             </div>
-            <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Authentication Required</h2>
-            <p className="text-muted-foreground mb-6">
-              Please sign in to access your personalized AI learning experience with Smartlyte.
-            </p>
-            <Button 
-              onClick={() => window.location.href = '/sign-in'}
-              className="w-full"
-            >
-              Sign In to Continue
-            </Button>
           </CardContent>
         </Card>
       </div>
@@ -164,8 +169,8 @@ export default function ChatPage() {
               </Button>
             </div>
             <ChatSidebar
-              currentChatId={currentChatId} // Now string | null
-              onChatSelect={handleChatSelect} // Now accepts string
+              currentChatId={currentChatId}
+              onChatSelect={handleChatSelect}
               onNewChat={handleNewChat}
               isMobile={true}
               className="border-0"
@@ -181,15 +186,15 @@ export default function ChatPage() {
           sidebarCollapsed ? "w-16" : "w-80"
         )}>
           <ChatSidebar
-            currentChatId={currentChatId} // Now string | null
-            onChatSelect={handleChatSelect} // Now accepts string
+            currentChatId={currentChatId}
+            onChatSelect={handleChatSelect}
             onNewChat={handleNewChat}
             isCollapsed={sidebarCollapsed}
           />
         </div>
       )}
 
-      {/* Main Content Area */}
+      {/* ✅ FIXED: Main Content Area - NOW INCLUDED! */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
         <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-40">
@@ -248,115 +253,56 @@ export default function ChatPage() {
 
             {/* Header Actions */}
             <div className="flex items-center gap-2">
-              {/* Error state */}
-              {error && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRetry}
-                  className="text-destructive border-destructive/20 hover:bg-destructive/10"
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Retry
-                </Button>
-              )}
+              {/* New Chat Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNewChat}
+                className="flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                {!isMobile && "New Chat"}
+              </Button>
 
-              {/* Settings & Help */}
-              <Button variant="ghost" size="sm" title="Settings">
+              {/* Settings */}
+              <Button variant="ghost" size="sm">
                 <Settings className="w-4 h-4" />
               </Button>
-              
-              <Button variant="ghost" size="sm" title="Help">
+
+              {/* Help */}
+              <Button variant="ghost" size="sm">
                 <HelpCircle className="w-4 h-4" />
               </Button>
             </div>
           </div>
-
-          {/* Global Error Alert */}
-          {error && (
-            <div className="px-4 pb-2">
-              <Alert variant="destructive" className="py-2">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription className="text-sm">
-                  {error}
-                </AlertDescription>
-              </Alert>
-            </div>
-          )}
         </header>
 
-        {/* Chat Content */}
-        <div className="flex-1 overflow-hidden">
-          {/* Welcome State */}
-          {!currentChatId && messages.length === 0 && !isLoading && (
-            <div className="flex items-center justify-center h-full p-8">
-              <div className="max-w-2xl text-center">
-                <div className="w-20 h-20 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <Sparkles className="w-10 h-10 text-white" />
-                </div>
-                <h2 className="text-2xl font-bold mb-4">
-                  Welcome to Smartlyte AI
-                </h2>
-                <p className="text-muted-foreground mb-8 text-lg">
-                  Your personalized AI learning companion is ready to help you master 
-                  digital skills, financial literacy, and health knowledge.
-                </p>
-                
-                {/* Quick Start Options */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-                  <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
-                    <div className="flex flex-col items-center text-center">
-                      <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center mb-3">
-                        <Computer className="w-6 h-6 text-purple-600" />
-                      </div>
-                      <h3 className="font-medium mb-1">Digital Skills</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Email, apps & online safety
-                      </p>
-                    </div>
-                  </Card>
-                  
-                  <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
-                    <div className="flex flex-col items-center text-center">
-                      <div className="w-12 h-12 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center mb-3">
-                        <DollarSign className="w-6 h-6 text-green-600" />
-                      </div>
-                      <h3 className="font-medium mb-1">Finance Guide</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Budgeting & money management
-                      </p>
-                    </div>
-                  </Card>
-                  
-                  <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer">
-                    <div className="flex flex-col items-center text-center">
-                      <div className="w-12 h-12 bg-red-100 dark:bg-red-900 rounded-lg flex items-center justify-center mb-3">
-                        <Heart className="w-6 h-6 text-red-600" />
-                      </div>
-                      <h3 className="font-medium mb-1">Health Coach</h3>
-                      <p className="text-sm text-muted-foreground">
-                        NHS app & health resources
-                      </p>
-                    </div>
-                  </Card>
-                </div>
-
-                <Button 
-                  onClick={handleNewChat}
-                  size="lg"
-                  className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+        {/* Error Alert */}
+        {error && (
+          <div className="p-4">
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="flex items-center justify-between">
+                <span>{error}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRetry}
                 >
-                  <Plus className="w-5 h-5 mr-2" />
-                  Start Your First Conversation
+                  <RefreshCw className="w-3 h-3 mr-1" />
+                  Retry
                 </Button>
-              </div>
-            </div>
-          )}
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
 
-          {/* Chat Interface */}
-          {(currentChatId || messages.length > 0) && (
-            <ChatWindow className="h-full" />
-          )}
+        {/* ✅ FIXED: Chat Window - NOW RENDERED! */}
+        <div className="flex-1 overflow-hidden">
+          <ChatWindow 
+            className="h-full"
+            showWelcome={!currentChatId && messages.length === 0}
+          />
         </div>
       </div>
     </div>
