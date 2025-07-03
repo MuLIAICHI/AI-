@@ -6,7 +6,7 @@ import { conversations, messages } from '@/lib/db/schema';
 import { eq, desc, asc, and, or, like, gte, lte, sql, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
-export const runtime = 'edge';
+// export const runtime = 'edge';
 
 // ✅ FIXED: Validation schema with proper null handling
 const conversationsQuerySchema = z.object({

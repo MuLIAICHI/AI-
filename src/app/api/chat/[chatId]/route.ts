@@ -6,7 +6,7 @@ import { conversations, messages } from '@/lib/db/schema';
 import { eq, and, desc, asc, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-export const runtime = 'edge';
+// export const runtime = 'edge';
 
 // Validation schemas
 const chatIdParamSchema = z.object({

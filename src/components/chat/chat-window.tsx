@@ -49,7 +49,8 @@ export function ChatWindow({
   } = useChat();
 
   const [input, setInput] = useState('');
-  const [selectedAgent, setSelectedAgent] = useState<string | undefined>(initialAgentId);
+  // ✅ FIXED: Default to 'router' instead of undefined for Smart Router
+  const [selectedAgent, setSelectedAgent] = useState<string | undefined>(initialAgentId || 'router');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -73,17 +74,23 @@ export function ChatWindow({
     const message = input.trim();
     setInput('');
     
+    // ✅ FIXED: Ensure we always pass a valid agent ID, default to 'router'
+    const agentToUse = selectedAgent || 'router';
+    
+    console.log('🎯 Sending message with agent:', agentToUse); // Debug log
+    
     await sendMessage(message, {
-      agentId: selectedAgent as any,
+      agentId: agentToUse as any,
       stream: true,
     });
   };
 
   /**
-   * Handle agent selection
+   * ✅ FIXED: Handle agent selection properly
    */
   const handleAgentSelect = (agentId: string) => {
-    setSelectedAgent(agentId === selectedAgent ? undefined : agentId);
+    console.log('🔄 Agent selected:', agentId); // Debug log
+    setSelectedAgent(agentId);
   };
 
   /**
@@ -135,7 +142,7 @@ export function ChatWindow({
       'Digital Mentor': 'digital-mentor',
       'Finance Guide': 'finance-guide', 
       'Health Coach': 'health-coach',
-      'Simple Router': 'router',
+      'Smart Router': 'router',
       'Intelligent Router': 'router',
     };
 
@@ -148,14 +155,15 @@ export function ChatWindow({
       {/* Agent Selection Bar */}
       <div className="border-b p-4 bg-muted/30">
         <div className="flex flex-wrap gap-2">
+          {/* ✅ FIXED: Smart Router button - set to 'router' instead of empty string */}
           <Button
-            variant={!selectedAgent ? "default" : "outline"}
+            variant={selectedAgent === 'router' ? "default" : "outline"}
             size="sm"
-            onClick={() => handleAgentSelect('')}
+            onClick={() => handleAgentSelect('router')}
             className="flex items-center gap-2"
           >
             <Sparkles className="w-4 h-4" />
-            Auto-Route
+            Smart Router
           </Button>
           
           {(['digital-mentor', 'finance-guide', 'health-coach'] as const).map((agentId) => {
@@ -177,9 +185,13 @@ export function ChatWindow({
           })}
         </div>
         
+        {/* ✅ UPDATED: Show correct description for router */}
         {selectedAgent && (
           <div className="mt-2 text-sm text-muted-foreground">
-            Chat directly with: {getAgentConfig(selectedAgent).description}
+            {selectedAgent === 'router' 
+              ? "Smart routing will connect you with the right specialist"
+              : `Chat directly with: ${getAgentConfig(selectedAgent).description}`
+            }
           </div>
         )}
       </div>
@@ -230,137 +242,118 @@ export function ChatWindow({
                 I'm here to help you learn digital skills, manage finances, and navigate health resources.
                 Just start chatting, and I'll connect you with the right specialist!
               </p>
-              
-              {/* Quick Start Examples */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-6">
-                {[
-                  { text: "Help me set up email", agent: 'digital-mentor', icon: '📧' },
-                  { text: "Create a budget plan", agent: 'finance-guide', icon: '📊' },
-                  { text: "Book NHS appointment", agent: 'health-coach', icon: '🏥' }
-                ].map((example, index) => (
-                  <Button
-                    key={index}
-                    variant="outline"
-                    className="h-auto p-3 text-left flex flex-col items-start gap-1"
-                    onClick={() => {
-                      setInput(example.text);
-                      setSelectedAgent(example.agent);
-                      inputRef.current?.focus();
-                    }}
-                  >
-                    <div className="flex items-center gap-2 font-medium">
-                      <span>{example.icon}</span>
-                      <span className="text-sm">{example.text}</span>
-                    </div>
-                  </Button>
-                ))}
+              <div className="flex flex-wrap gap-2 justify-center">
+                <Badge variant="secondary" className="flex items-center gap-1">
+                  <Computer className="w-3 h-3" />
+                  Digital Skills
+                </Badge>
+                <Badge variant="secondary" className="flex items-center gap-1">
+                  <DollarSign className="w-3 h-3" />
+                  Money Management
+                </Badge>
+                <Badge variant="secondary" className="flex items-center gap-1">
+                  <Heart className="w-3 h-3" />
+                  Health Resources
+                </Badge>
               </div>
             </CardContent>
           </Card>
         )}
 
         {/* Messages */}
-        {messages.map((message) => {
+        {messages.map((message, index) => {
           const isUser = message.role === 'user';
-          const agentConfig = isUser ? null : getMessageAgentInfo(message.agentName);
+          const agentInfo = isUser ? null : getMessageAgentInfo(message.agentName);
+          const IconComponent = agentInfo?.icon || User;
 
           return (
-            <div
-              key={message.id}
-              className={cn(
-                "flex gap-3",
-                isUser ? "justify-end" : "justify-start"
-              )}
-            >
-              {/* Assistant Avatar */}
+            <div key={message.id} className={cn(
+              "flex gap-3",
+              isUser ? "justify-end" : "justify-start"
+            )}>
+              {/* Agent Avatar */}
               {!isUser && (
                 <div className={cn(
-                  "w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0",
-                  agentConfig?.color || "bg-gray-500"
+                  "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium",
+                  agentInfo?.color || "bg-gray-500"
                 )}>
-                  {agentConfig?.emoji || '🤖'}
+                  <IconComponent className="w-4 h-4" />
                 </div>
               )}
-              
-              {/* Message Content */}
-              <Card
-                className={cn(
-                  "max-w-[80%] transition-all duration-200",
-                  isUser
-                    ? "bg-primary text-primary-foreground ml-12"
-                    : "bg-muted hover:bg-muted/80"
-                )}
-              >
-                <CardContent className="p-3">
-                  <div className="text-sm whitespace-pre-wrap leading-relaxed">
-                    {message.content}
+
+              {/* Message Bubble */}
+              <div className={cn(
+                "max-w-[80%] rounded-lg px-4 py-2",
+                isUser 
+                  ? "bg-primary text-primary-foreground ml-auto" 
+                  : "bg-muted"
+              )}>
+                {/* Agent Name */}
+                {!isUser && message.agentName && (
+                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                    {message.agentName}
                   </div>
-                  
-                  {/* Agent Badge */}
-                  {!isUser && message.agentName && (
-                    <div className="flex items-center justify-between mt-2">
-                      <Badge variant="secondary" className="text-xs">
-                        {agentConfig?.name || message.agentName}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {message.createdAt.toLocaleTimeString([], { 
-                          hour: '2-digit', 
-                          minute: '2-digit' 
-                        })}
-                      </span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                )}
+                
+                {/* Message Content */}
+                <div className="whitespace-pre-wrap break-words">
+                  {message.content}
+                </div>
+                
+                {/* Timestamp */}
+                <div className={cn(
+                  "text-xs mt-1 opacity-70",
+                  isUser ? "text-primary-foreground/70" : "text-muted-foreground"
+                )}>
+                  {message.createdAt.toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                  })}
+                </div>
+              </div>
 
               {/* User Avatar */}
               {isUser && (
-                <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                  <User className="w-4 h-4 text-primary-foreground" />
+                <div className="flex-shrink-0 w-8 h-8 bg-primary rounded-full flex items-center justify-center text-primary-foreground text-sm font-medium">
+                  <User className="w-4 h-4" />
                 </div>
               )}
             </div>
           );
         })}
-        
+
         {/* Typing Indicator */}
-        {(isLoading || isStreaming) && (
-          <div className="flex justify-start gap-3">
-            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white">
-              🤖
+        {isStreaming && (
+          <div className="flex gap-3 justify-start">
+            <div className="flex-shrink-0 w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center text-white">
+              <Bot className="w-4 h-4" />
             </div>
-            <Card className="bg-muted">
-              <CardContent className="p-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                  </div>
-                  <span className="text-sm text-muted-foreground">
-                    {isStreaming ? 'AI is responding...' : 'AI is thinking...'}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="bg-muted rounded-lg px-4 py-2">
+              <div className="flex gap-1">
+                <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-pulse" />
+                <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-pulse delay-75" />
+                <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-pulse delay-150" />
+              </div>
+            </div>
           </div>
         )}
-        
+
+        {/* Scroll Anchor */}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Chat Input */}
+      {/* Input Form */}
       <div className="border-t p-4 bg-background">
         <form onSubmit={handleSubmit} className="flex gap-2">
-          <div className="flex-1 relative">
+          <div className="relative flex-1">
             <Input
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={
-                selectedAgent 
-                  ? `Ask ${getAgentConfig(selectedAgent).name} anything...`
-                  : "Ask about digital skills, money management, or health resources..."
+                selectedAgent === 'router'
+                  ? "Ask about digital skills, money management, or health resources..."
+                  : `Ask ${getAgentConfig(selectedAgent).name} anything...`
               }
               disabled={isStreaming}
               className="pr-16"
@@ -401,10 +394,12 @@ export function ChatWindow({
         {/* Input Helper Text */}
         <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
           <div>
-            {selectedAgent ? (
+            {selectedAgent === 'router' ? (
+              <span>Smart routing will choose the best specialist for you</span>
+            ) : selectedAgent ? (
               <span>Chatting with {getAgentConfig(selectedAgent).name}</span>
             ) : (
-              <span>Smart routing will choose the best specialist for you</span>
+              <span>Select an agent above</span>
             )}
           </div>
           <div className="flex items-center gap-4">

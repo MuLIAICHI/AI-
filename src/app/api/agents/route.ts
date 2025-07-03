@@ -7,7 +7,7 @@ import { conversations, messages } from '@/lib/db/schema'; // ✅ Fixed: Use NEW
 import { eq, desc, count, sql, and } from 'drizzle-orm'; // ✅ Added 'and' for combining conditions
 import { z } from 'zod';
 
-export const runtime = 'edge';
+// export const runtime = 'edge';
 
 // Request validation schemas
 const healthCheckSchema = z.object({
