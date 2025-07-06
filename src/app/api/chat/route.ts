@@ -7,7 +7,7 @@ import { eq, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { mastraService } from '@/lib/mastra'; // ✅ Import Mastra service
 
-// export const runtime = 'edge';
+// ✅ REMOVED: export const runtime = 'edge'; - Mastra needs Node.js runtime
 
 // ✅ FIXED: Request validation schema with correct agent IDs (hyphens)
 const chatRequestSchema = z.object({
@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
 
     console.log('📜 Retrieved conversation history:', conversationHistory.length, 'messages');
 
-    // 7. Generate response using Mastra agents
+    // 7. Generate response using Mastra agents with intelligent routing
     let assistantResponse;
     let agentName;
     let responseAgentType;
@@ -140,20 +140,68 @@ export async function POST(request: NextRequest) {
     try {
       console.log('🤖 Calling Mastra with agent:', normalizedAgentId);
       
-      // Call Mastra service with conversation context
-      const mastraResponse = await mastraService.chat(userId, message, {
-        agentId: normalizedAgentId,
-        conversationHistory: conversationHistory,
-        stream: false, // For now, use non-streaming
-      });
+      // ✅ ENHANCED: Implement intelligent routing logic
+      if (normalizedAgentId === 'router') {
+        console.log('🧠 Router agent selected - checking for routing decision');
+        
+        // Step 1: Call Router to get routing decision
+        const routerResponse = await mastraService.chat(userId, message, {
+          agentId: 'router',
+          conversationHistory: conversationHistory,
+          stream: false,
+        });
 
-      if (mastraResponse.success) {
-        assistantResponse = mastraResponse.message || "I'm here to help! How can I assist you today?";
-        agentName = mastraResponse.agent || getAgentName(normalizedAgentId);
-        responseAgentType = normalizedAgentId || 'router';
-        console.log('✅ Mastra response received from:', agentName);
+        if (routerResponse.success) {
+          const routerMessage = routerResponse.message || "";
+          console.log('🔍 Router response:', routerMessage.substring(0, 100) + '...');
+          
+          // ✅ NEW: Check if Router decided to route to a specialist
+          const routingDecision = analyzeRoutingDecision(routerMessage);
+          
+          if (routingDecision.shouldRoute) {
+            console.log('🔄 Router decided to route to:', routingDecision.targetAgent);
+            
+            // Step 2: Call the specialist agent that Router chose
+            const specialistResponse = await mastraService.chat(userId, message, {
+              agentId: routingDecision.targetAgent,
+              conversationHistory: conversationHistory,
+              stream: false,
+            });
+
+            if (specialistResponse.success) {
+              assistantResponse = specialistResponse.message || "I'm here to help! How can I assist you today?";
+              agentName = specialistResponse.agent || getAgentName(routingDecision.targetAgent);
+              responseAgentType = routingDecision.targetAgent;
+              console.log('✅ Specialist response received from:', agentName);
+            } else {
+              throw new Error('Specialist agent failed');
+            }
+          } else {
+            // Router handled the conversation itself (no routing needed)
+            assistantResponse = routerMessage;
+            agentName = routerResponse.agent || 'Smart Router';
+            responseAgentType = 'router';
+            console.log('✅ Router handled conversation directly');
+          }
+        } else {
+          throw new Error(routerResponse.error || 'Router agent failed');
+        }
       } else {
-        throw new Error(mastraResponse.error || 'Mastra service failed');
+        // Direct agent call (user explicitly selected an agent)
+        const mastraResponse = await mastraService.chat(userId, message, {
+          agentId: normalizedAgentId,
+          conversationHistory: conversationHistory,
+          stream: false,
+        });
+
+        if (mastraResponse.success) {
+          assistantResponse = mastraResponse.message || "I'm here to help! How can I assist you today?";
+          agentName = mastraResponse.agent || getAgentName(normalizedAgentId);
+          responseAgentType = normalizedAgentId;
+          console.log('✅ Direct agent response received from:', agentName);
+        } else {
+          throw new Error(mastraResponse.error || 'Agent failed');
+        }
       }
     } catch (error) {
       console.error('❌ Mastra error, using fallback:', error);
@@ -240,6 +288,82 @@ function transformAgentIdForDb(agentId?: string): 'router' | 'digital_mentor' | 
 }
 
 /**
+ * ✅ NEW: Analyze Router's response to detect routing decisions
+ */
+function analyzeRoutingDecision(routerMessage: string): {
+  shouldRoute: boolean;
+  targetAgent?: string;
+  confidence: number;
+} {
+  const message = routerMessage.toLowerCase();
+  
+  // Check for explicit routing statements
+  if (message.includes('connecting you with our') || message.includes("i'm connecting you")) {
+    
+    // Digital Mentor routing
+    if (message.includes('digital mentor') || message.includes('🖥️')) {
+      return {
+        shouldRoute: true,
+        targetAgent: 'digital-mentor',
+        confidence: 0.9
+      };
+    }
+    
+    // Finance Guide routing  
+    if (message.includes('finance guide') || message.includes('💰')) {
+      return {
+        shouldRoute: true,
+        targetAgent: 'finance-guide',
+        confidence: 0.9
+      };
+    }
+    
+    // Health Coach routing
+    if (message.includes('health coach') || message.includes('🏥')) {
+      return {
+        shouldRoute: true,
+        targetAgent: 'health-coach', 
+        confidence: 0.9
+      };
+    }
+  }
+  
+  // Check for other routing indicators
+  if (message.includes('specialist') || message.includes('expert')) {
+    // Try to infer which specialist based on context
+    if (message.includes('technology') || message.includes('digital') || message.includes('email') || message.includes('computer')) {
+      return {
+        shouldRoute: true,
+        targetAgent: 'digital-mentor',
+        confidence: 0.7
+      };
+    }
+    
+    if (message.includes('money') || message.includes('financial') || message.includes('budget') || message.includes('bank')) {
+      return {
+        shouldRoute: true,
+        targetAgent: 'finance-guide',
+        confidence: 0.7
+      };
+    }
+    
+    if (message.includes('health') || message.includes('nhs') || message.includes('medical') || message.includes('doctor')) {
+      return {
+        shouldRoute: true,
+        targetAgent: 'health-coach',
+        confidence: 0.7
+      };
+    }
+  }
+  
+  // No routing detected - Router handled conversation itself
+  return {
+    shouldRoute: false,
+    confidence: 0.9
+  };
+}
+
+/**
  * ✅ NEW: Ensure user exists in database (create if needed)
  * This fixes the foreign key constraint error
  */
@@ -273,4 +397,4 @@ async function ensureUserExists(userId: string): Promise<void> {
     console.error('❌ Error ensuring user exists:', error);
     throw new Error('Failed to create or verify user');
   }
-}
+} 

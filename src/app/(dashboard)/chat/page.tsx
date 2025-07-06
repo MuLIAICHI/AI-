@@ -1,4 +1,4 @@
-// src/app/(dashboard)/chat/page.tsx
+// src/app/(dashboard)/chat/page.tsx - LAYOUT FIX
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -28,15 +28,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/**
- * Main chat page component that combines sidebar and chat window
- * Provides complete chat experience with mobile responsiveness
- * ✅ FIXED: Now includes ChatWindow in main content area
- */
 export default function ChatPage() {
   const { user, isLoaded } = useUser();
   const {
-    currentChatId, // Now string | null
+    currentChatId,
     chats,
     messages,
     isLoading,
@@ -57,7 +52,6 @@ export default function ChatPage() {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
       
-      // Auto-close sidebar on mobile when screen gets small
       if (mobile && sidebarOpen) {
         setSidebarOpen(false);
       }
@@ -68,30 +62,25 @@ export default function ChatPage() {
     return () => window.removeEventListener('resize', checkMobile);
   }, [sidebarOpen]);
 
-  // FIXED: Updated handler signature to use string ID
   const handleChatSelect = (chatId: string) => {
-    // Close mobile sidebar after selecting
     if (isMobile) {
       setSidebarOpen(false);
     }
   };
 
-  // Handle new chat creation
   const handleNewChat = () => {
     startNewChat();
-    // Close mobile sidebar after creating new chat
     if (isMobile) {
       setSidebarOpen(false);
     }
   };
 
-  // Handle error retry
   const handleRetry = () => {
     clearError();
     loadChats();
   };
 
-  // Loading state while user data loads
+  // Loading state
   if (!isLoaded) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -143,17 +132,16 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    /* ✅ FIXED: Main container with proper height constraints */
+    <div className="h-screen w-full flex bg-background overflow-hidden">
+      
       {/* Mobile Sidebar Overlay */}
       {isMobile && sidebarOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          {/* Backdrop */}
           <div 
             className="fixed inset-0 bg-black/50 transition-opacity backdrop-blur-sm"
             onClick={() => setSidebarOpen(false)}
           />
-          
-          {/* Sidebar */}
           <div className="fixed left-0 top-0 h-full w-80 bg-background shadow-xl border-r">
             <div className="flex items-center justify-between p-4 border-b">
               <div className="flex items-center gap-2">
@@ -173,7 +161,7 @@ export default function ChatPage() {
               onChatSelect={handleChatSelect}
               onNewChat={handleNewChat}
               isMobile={true}
-              className="border-0"
+              className="border-0 h-[calc(100vh-73px)]"
             />
           </div>
         </div>
@@ -182,7 +170,7 @@ export default function ChatPage() {
       {/* Desktop Sidebar */}
       {!isMobile && (
         <div className={cn(
-          "border-r bg-muted/30 transition-all duration-300 ease-in-out",
+          "border-r bg-muted/30 transition-all duration-300 ease-in-out flex-shrink-0",
           sidebarCollapsed ? "w-16" : "w-80"
         )}>
           <ChatSidebar
@@ -190,15 +178,17 @@ export default function ChatPage() {
             onChatSelect={handleChatSelect}
             onNewChat={handleNewChat}
             isCollapsed={sidebarCollapsed}
+            className="h-full"
           />
         </div>
       )}
 
-      {/* ✅ FIXED: Main Content Area - NOW INCLUDED! */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-40">
-          <div className="flex items-center justify-between p-4">
+      {/* ✅ FIXED: Main Content Area with proper flex layout */}
+      <div className="flex-1 flex flex-col min-w-0 h-full">
+        
+        {/* ✅ FIXED: Header with fixed height */}
+        <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0 h-16">
+          <div className="flex items-center justify-between p-4 h-full">
             <div className="flex items-center gap-3">
               {/* Mobile Menu Button */}
               {isMobile && (
@@ -253,7 +243,6 @@ export default function ChatPage() {
 
             {/* Header Actions */}
             <div className="flex items-center gap-2">
-              {/* New Chat Button */}
               <Button
                 variant="outline"
                 size="sm"
@@ -264,12 +253,10 @@ export default function ChatPage() {
                 {!isMobile && "New Chat"}
               </Button>
 
-              {/* Settings */}
               <Button variant="ghost" size="sm">
                 <Settings className="w-4 h-4" />
               </Button>
 
-              {/* Help */}
               <Button variant="ghost" size="sm">
                 <HelpCircle className="w-4 h-4" />
               </Button>
@@ -277,9 +264,9 @@ export default function ChatPage() {
           </div>
         </header>
 
-        {/* Error Alert */}
+        {/* ✅ FIXED: Error Alert with fixed positioning */}
         {error && (
-          <div className="p-4">
+          <div className="p-4 flex-shrink-0">
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription className="flex items-center justify-between">
@@ -297,10 +284,13 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* ✅ FIXED: Chat Window - NOW RENDERED! */}
-        <div className="flex-1 overflow-hidden">
+        {/* ✅ FIXED: Chat Window with calculated height */}
+        <div className={cn(
+          "flex-1 min-h-0 overflow-hidden",
+          error ? "h-[calc(100vh-160px)]" : "h-[calc(100vh-64px)]"
+        )}>
           <ChatWindow 
-            className="h-full"
+            className="h-full w-full"
             showWelcome={!currentChatId && messages.length === 0}
           />
         </div>

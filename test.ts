@@ -2,11 +2,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { db } from '@/lib/db';
-import { conversations, messages, users } from '@/lib/db/schema'; // ✅ Import users table
+import { conversations, messages, users } from '@/lib/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { z } from 'zod';
+import { mastraService } from '@/lib/mastra'; // ✅ Import Mastra service
 
-export const runtime = 'edge';
+// export const runtime = 'edge';
 
 // ✅ FIXED: Request validation schema with correct agent IDs (hyphens)
 const chatRequestSchema = z.object({
@@ -112,15 +113,58 @@ export async function POST(request: NextRequest) {
 
     console.log('💾 Saved user message:', userMessage.id);
 
-    // 6. TODO: Route to Mastra agents and get response
-    // For now, return a placeholder response
-    const placeholderResponse = {
-      content: `Hello! I received your message: "${message}". I'm ${getAgentName(normalizedAgentId)} and I'm here to help you. Full Mastra integration coming soon!`,
-      agentName: getAgentName(normalizedAgentId),
-      agentType: normalizedAgentId || 'router'
-    };
+    // 6. Get recent conversation history for Mastra context
+    const recentMessages = await db
+      .select({
+        content: messages.content,
+        role: messages.role,
+      })
+      .from(messages)
+      .where(eq(messages.conversationId, currentConversation.id))
+      .orderBy(desc(messages.createdAt))
+      .limit(10); // Get last 10 messages for context
 
-    // 7. Save assistant response to database
+    // Reverse to get chronological order (oldest first)
+    const conversationHistory = recentMessages.reverse().map(msg => ({
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+    }));
+
+    console.log('📜 Retrieved conversation history:', conversationHistory.length, 'messages');
+
+    // 7. Generate response using Mastra agents
+    let assistantResponse;
+    let agentName;
+    let responseAgentType;
+
+    try {
+      console.log('🤖 Calling Mastra with agent:', normalizedAgentId);
+      
+      // Call Mastra service with conversation context
+      const mastraResponse = await mastraService.chat(userId, message, {
+        agentId: normalizedAgentId,
+        conversationHistory: conversationHistory,
+        stream: false, // For now, use non-streaming
+      });
+
+      if (mastraResponse.success) {
+        assistantResponse = mastraResponse.message || "I'm here to help! How can I assist you today?";
+        agentName = mastraResponse.agent || getAgentName(normalizedAgentId);
+        responseAgentType = normalizedAgentId || 'router';
+        console.log('✅ Mastra response received from:', agentName);
+      } else {
+        throw new Error(mastraResponse.error || 'Mastra service failed');
+      }
+    } catch (error) {
+      console.error('❌ Mastra error, using fallback:', error);
+      
+      // Fallback to placeholder response if Mastra fails
+      assistantResponse = `Hello! I received your message: "${message}". I'm ${getAgentName(normalizedAgentId)} and I'm here to help you. (Mastra temporarily unavailable)`;
+      agentName = getAgentName(normalizedAgentId);
+      responseAgentType = normalizedAgentId || 'router';
+    }
+
+    // 8. Save assistant response to database
     // ✅ FIXED: Transform agent ID format for database (hyphens → underscores)
     const dbAgentType = transformAgentIdForDb(normalizedAgentId);
     
@@ -129,7 +173,7 @@ export async function POST(request: NextRequest) {
       .values({
         conversationId: currentConversation.id,
         role: 'assistant',
-        content: placeholderResponse.content,
+        content: assistantResponse, // ✅ Use Mastra response
         agentType: dbAgentType,
         createdAt: new Date(),
       })
@@ -137,18 +181,18 @@ export async function POST(request: NextRequest) {
 
     console.log('🤖 Saved assistant message:', assistantMessage.id);
 
-    // 8. Update conversation timestamp
+    // 9. Update conversation timestamp
     await db
       .update(conversations)
       .set({ updatedAt: new Date() })
       .where(eq(conversations.id, currentConversation.id));
 
-    // 9. Return success response
+    // 10. Return success response
     return NextResponse.json({
       success: true,
-      response: placeholderResponse.content,
-      agentName: placeholderResponse.agentName,
-      agentType: normalizedAgentId || 'router', // ✅ Use normalized version
+      response: assistantResponse, // ✅ Use Mastra response
+      agentName: agentName, // ✅ Use actual agent name from Mastra
+      agentType: responseAgentType, // ✅ Use response agent type
       conversationId: currentConversation.id,
       messageId: assistantMessage.id,
     });
