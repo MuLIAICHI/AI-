@@ -5,22 +5,21 @@ import { db } from '@/lib/db';
 import { conversations, messages, users } from '@/lib/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { z } from 'zod';
-import { mastraService } from '@/lib/mastra'; // ✅ Import Mastra service
-
-// ✅ REMOVED: export const runtime = 'edge'; - Mastra needs Node.js runtime
+import { mastraService } from '@/lib/mastra';
+import { UserService } from '@/services/user-service';
 
 // ✅ FIXED: Request validation schema with correct agent IDs (hyphens)
 const chatRequestSchema = z.object({
   message: z.string().min(1, 'Message cannot be empty').max(4000, 'Message too long'),
-  conversationId: z.string().uuid().nullish(), // ✅ FIXED: Use .nullish() to accept null, undefined, or string
-  // ✅ FIXED: Changed underscores to hyphens to match frontend
-  agentId: z.enum(['router', 'digital-mentor', 'finance-guide', 'health-coach']).nullish(), // ✅ FIXED: Also nullish for consistency
+  conversationId: z.string().uuid().nullish(),
+  agentId: z.enum(['router', 'digital-mentor', 'finance-guide', 'health-coach']).nullish(),
   stream: z.boolean().default(true),
 });
 
 /**
- * POST /api/chat - Main chat endpoint
+ * POST /api/chat - Enhanced chat endpoint with onboarding detection
  * Handles user messages and routes them to appropriate Mastra agents
+ * Now includes comprehensive onboarding flow for new users
  */
 export async function POST(request: NextRequest) {
   try {
@@ -64,12 +63,33 @@ export async function POST(request: NextRequest) {
       conversationId: normalizedConversationId 
     });
 
-    // 3. Ensure user exists in database (create if needed)
-    await ensureUserExists(userId);
+    // 3. 🎯 NEW: Enhanced user management with onboarding detection
+    const userWithPreferences = await UserService.getUserWithPreferences(userId);
+    
+    if (!userWithPreferences) {
+      // Create new user with comprehensive setup
+      console.log('🆕 Creating new user with full onboarding setup');
+      
+      // Get basic user info from Clerk (if available)
+      // For now, we'll use minimal data and let onboarding fill the rest
+      await UserService.createUser({
+        clerkId: userId,
+        email: `user-${userId}@temp.com`, // Will be updated with real email from Clerk
+        onboardingCompleted: false, // 🎯 KEY: Mark as needing onboarding
+      });
+      
+      console.log('✅ New user created, onboarding required');
+    }
 
-    // 4. Get or create conversation session
+    // 4. 🎯 NEW: Check onboarding status and determine flow
+    const user = await UserService.getUserWithPreferences(userId);
+    const needsOnboarding = !user?.onboardingCompleted;
+    
+    console.log(`🎯 User onboarding status: ${needsOnboarding ? 'NEEDS ONBOARDING' : 'COMPLETED'}`);
+
+    // 5. Get or create conversation session
     let currentConversation;
-    if (normalizedConversationId) { // ✅ Use normalized version
+    if (normalizedConversationId) {
       // Get existing conversation and verify ownership
       const [existingConversation] = await db
         .select()
@@ -86,12 +106,16 @@ export async function POST(request: NextRequest) {
       currentConversation = existingConversation;
       console.log('🔄 Using existing conversation:', currentConversation.id);
     } else {
-      // Create new conversation session (conversationId is null, undefined, or empty)
+      // Create new conversation session
+      const conversationTitle = needsOnboarding 
+        ? 'Welcome to Smartlyte - Getting Started'
+        : `Chat with Smartlyte AI`;
+        
       const [newConversation] = await db
         .insert(conversations)
         .values({
           userId,
-          title: `Chat with Smartlyte AI`, // Will be updated with a better title later
+          title: conversationTitle,
           createdAt: new Date(),
           updatedAt: new Date(),
         })
@@ -100,7 +124,7 @@ export async function POST(request: NextRequest) {
       console.log('🆕 Created new conversation:', currentConversation.id);
     }
 
-    // 5. Save user message to database
+    // 6. Save user message to database
     const [userMessage] = await db
       .insert(messages)
       .values({
@@ -113,7 +137,7 @@ export async function POST(request: NextRequest) {
 
     console.log('💾 Saved user message:', userMessage.id);
 
-    // 6. Get recent conversation history for Mastra context
+    // 7. Get recent conversation history for context
     const recentMessages = await db
       .select({
         content: messages.content,
@@ -122,9 +146,8 @@ export async function POST(request: NextRequest) {
       .from(messages)
       .where(eq(messages.conversationId, currentConversation.id))
       .orderBy(desc(messages.createdAt))
-      .limit(10); // Get last 10 messages for context
+      .limit(10);
 
-    // Reverse to get chronological order (oldest first)
     const conversationHistory = recentMessages.reverse().map(msg => ({
       role: msg.role as 'user' | 'assistant',
       content: msg.content,
@@ -132,88 +155,75 @@ export async function POST(request: NextRequest) {
 
     console.log('📜 Retrieved conversation history:', conversationHistory.length, 'messages');
 
-    // 7. Generate response using Mastra agents with intelligent routing
+    // 8. 🎯 NEW: Enhanced Mastra call with onboarding context
     let assistantResponse;
     let agentName;
     let responseAgentType;
+    let onboardingCompleted = false;
 
     try {
-      console.log('🤖 Calling Mastra with agent:', normalizedAgentId);
+      console.log('🤖 Calling Mastra with enhanced context');
       
-      // ✅ ENHANCED: Implement intelligent routing logic
-      if (normalizedAgentId === 'router') {
-        console.log('🧠 Router agent selected - checking for routing decision');
+      // 🎯 NEW: Pass onboarding context to Mastra service
+      const mastraResponse = await mastraService.chat(userId, message, {
+        agentId: normalizedAgentId,
+        conversationHistory: conversationHistory,
+        stream: false,
+        // 🎯 NEW: Pass user context for onboarding
+        userContext: {
+          needsOnboarding,
+          isFirstMessage: conversationHistory.length <= 1,
+          userPreferences: user?.preferences
+            ? {
+                language: user.preferences.language ?? undefined,
+                theme: user.preferences.theme ?? undefined,
+              }
+            : undefined,
+          userName: user?.firstName ?? undefined,
+        },
+      });
+
+      if (mastraResponse.success) {
+        assistantResponse = mastraResponse.message || "I'm here to help! How can I assist you today?";
+        agentName = mastraResponse.agent || getAgentName(normalizedAgentId);
+        responseAgentType = normalizedAgentId || 'router';
         
-        // Step 1: Call Router to get routing decision
-        const routerResponse = await mastraService.chat(userId, message, {
-          agentId: 'router',
-          conversationHistory: conversationHistory,
-          stream: false,
-        });
-
-        if (routerResponse.success) {
-          const routerMessage = routerResponse.message || "";
-          console.log('🔍 Router response:', routerMessage.substring(0, 100) + '...');
-          
-          // ✅ NEW: Check if Router decided to route to a specialist
-          const routingDecision = analyzeRoutingDecision(routerMessage);
-          
-          if (routingDecision.shouldRoute) {
-            console.log('🔄 Router decided to route to:', routingDecision.targetAgent);
-            
-            // Step 2: Call the specialist agent that Router chose
-            const specialistResponse = await mastraService.chat(userId, message, {
-              agentId: routingDecision.targetAgent,
-              conversationHistory: conversationHistory,
-              stream: false,
-            });
-
-            if (specialistResponse.success) {
-              assistantResponse = specialistResponse.message || "I'm here to help! How can I assist you today?";
-              agentName = specialistResponse.agent || getAgentName(routingDecision.targetAgent);
-              responseAgentType = routingDecision.targetAgent;
-              console.log('✅ Specialist response received from:', agentName);
-            } else {
-              throw new Error('Specialist agent failed');
-            }
-          } else {
-            // Router handled the conversation itself (no routing needed)
-            assistantResponse = routerMessage;
-            agentName = routerResponse.agent || 'Smart Router';
-            responseAgentType = 'router';
-            console.log('✅ Router handled conversation directly');
-          }
-        } else {
-          throw new Error(routerResponse.error || 'Router agent failed');
+        // 🎯 NEW: Check if onboarding was completed during this interaction
+        onboardingCompleted = mastraResponse.onboardingCompleted || false;
+        
+        console.log('✅ Mastra response received from:', agentName);
+        if (onboardingCompleted) {
+          console.log('🎉 Onboarding completed during this interaction!');
         }
       } else {
-        // Direct agent call (user explicitly selected an agent)
-        const mastraResponse = await mastraService.chat(userId, message, {
-          agentId: normalizedAgentId,
-          conversationHistory: conversationHistory,
-          stream: false,
-        });
-
-        if (mastraResponse.success) {
-          assistantResponse = mastraResponse.message || "I'm here to help! How can I assist you today?";
-          agentName = mastraResponse.agent || getAgentName(normalizedAgentId);
-          responseAgentType = normalizedAgentId;
-          console.log('✅ Direct agent response received from:', agentName);
-        } else {
-          throw new Error(mastraResponse.error || 'Agent failed');
-        }
+        throw new Error(mastraResponse.error || 'Mastra service failed');
       }
     } catch (error) {
       console.error('❌ Mastra error, using fallback:', error);
       
-      // Fallback to placeholder response if Mastra fails
-      assistantResponse = `Hello! I received your message: "${message}". I'm ${getAgentName(normalizedAgentId)} and I'm here to help you. (Mastra temporarily unavailable)`;
+      // 🎯 ENHANCED: Better fallback messaging based on onboarding status
+      if (needsOnboarding) {
+        assistantResponse = `Welcome to Smartlyte! I'm your AI learning guide, here to help you build digital skills, manage money better, and navigate health resources. Let's start by getting to know you better - what would you like to learn about today?`;
+      } else {
+        assistantResponse = `Hello${user?.firstName ? ` ${user.firstName}` : ''}! I received your message: "${message}". I'm ${getAgentName(normalizedAgentId)} and I'm here to help you. (Temporarily using backup system)`;
+      }
+      
       agentName = getAgentName(normalizedAgentId);
       responseAgentType = normalizedAgentId || 'router';
     }
 
-    // 8. Save assistant response to database
-    // ✅ FIXED: Transform agent ID format for database (hyphens → underscores)
+    // 9. 🎯 NEW: Update user onboarding status if completed
+    if (onboardingCompleted && needsOnboarding) {
+      try {
+        await UserService.completeOnboarding(userId);
+        console.log('✅ Marked user onboarding as completed');
+      } catch (error) {
+        console.error('❌ Error updating onboarding status:', error);
+        // Don't fail the request if this update fails
+      }
+    }
+
+    // 10. Save assistant response to database
     const dbAgentType = transformAgentIdForDb(normalizedAgentId);
     
     const [assistantMessage] = await db
@@ -221,7 +231,7 @@ export async function POST(request: NextRequest) {
       .values({
         conversationId: currentConversation.id,
         role: 'assistant',
-        content: assistantResponse, // ✅ Use Mastra response
+        content: assistantResponse,
         agentType: dbAgentType,
         createdAt: new Date(),
       })
@@ -229,20 +239,31 @@ export async function POST(request: NextRequest) {
 
     console.log('🤖 Saved assistant message:', assistantMessage.id);
 
-    // 9. Update conversation timestamp
+    // 11. Update conversation timestamp
     await db
       .update(conversations)
-      .set({ updatedAt: new Date() })
+      .set({ 
+        updatedAt: new Date(),
+        // 🎯 NEW: Update title if onboarding was completed
+        ...(onboardingCompleted && { title: 'Chat with Smartlyte AI' })
+      })
       .where(eq(conversations.id, currentConversation.id));
 
-    // 10. Return success response
+    // 12. 🎯 ENHANCED: Return response with onboarding context
     return NextResponse.json({
       success: true,
-      response: assistantResponse, // ✅ Use Mastra response
-      agentName: agentName, // ✅ Use actual agent name from Mastra
-      agentType: responseAgentType, // ✅ Use response agent type
+      response: assistantResponse,
+      agentName: agentName,
+      agentType: responseAgentType,
       conversationId: currentConversation.id,
       messageId: assistantMessage.id,
+      // 🎯 NEW: Include onboarding context in response
+      userContext: {
+        needsOnboarding: needsOnboarding && !onboardingCompleted,
+        onboardingCompleted,
+        isFirstTimeUser: !user?.onboardingCompleted && conversationHistory.length <= 1,
+        userName: user?.firstName,
+      },
     });
 
   } catch (error) {
@@ -272,7 +293,7 @@ function getAgentName(agentId?: string): string {
 }
 
 /**
- * ✅ FIXED: Transform agent IDs from frontend format (hyphens) to database format (underscores)
+ * Transform agent IDs from frontend format (hyphens) to database format (underscores)
  */
 function transformAgentIdForDb(agentId?: string): 'router' | 'digital_mentor' | 'finance_guide' | 'health_coach' | undefined {
   if (!agentId) return undefined;
@@ -286,115 +307,3 @@ function transformAgentIdForDb(agentId?: string): 'router' | 'digital_mentor' | 
   
   return transformMap[agentId as keyof typeof transformMap];
 }
-
-/**
- * ✅ NEW: Analyze Router's response to detect routing decisions
- */
-function analyzeRoutingDecision(routerMessage: string): {
-  shouldRoute: boolean;
-  targetAgent?: string;
-  confidence: number;
-} {
-  const message = routerMessage.toLowerCase();
-  
-  // Check for explicit routing statements
-  if (message.includes('connecting you with our') || message.includes("i'm connecting you")) {
-    
-    // Digital Mentor routing
-    if (message.includes('digital mentor') || message.includes('🖥️')) {
-      return {
-        shouldRoute: true,
-        targetAgent: 'digital-mentor',
-        confidence: 0.9
-      };
-    }
-    
-    // Finance Guide routing  
-    if (message.includes('finance guide') || message.includes('💰')) {
-      return {
-        shouldRoute: true,
-        targetAgent: 'finance-guide',
-        confidence: 0.9
-      };
-    }
-    
-    // Health Coach routing
-    if (message.includes('health coach') || message.includes('🏥')) {
-      return {
-        shouldRoute: true,
-        targetAgent: 'health-coach', 
-        confidence: 0.9
-      };
-    }
-  }
-  
-  // Check for other routing indicators
-  if (message.includes('specialist') || message.includes('expert')) {
-    // Try to infer which specialist based on context
-    if (message.includes('technology') || message.includes('digital') || message.includes('email') || message.includes('computer')) {
-      return {
-        shouldRoute: true,
-        targetAgent: 'digital-mentor',
-        confidence: 0.7
-      };
-    }
-    
-    if (message.includes('money') || message.includes('financial') || message.includes('budget') || message.includes('bank')) {
-      return {
-        shouldRoute: true,
-        targetAgent: 'finance-guide',
-        confidence: 0.7
-      };
-    }
-    
-    if (message.includes('health') || message.includes('nhs') || message.includes('medical') || message.includes('doctor')) {
-      return {
-        shouldRoute: true,
-        targetAgent: 'health-coach',
-        confidence: 0.7
-      };
-    }
-  }
-  
-  // No routing detected - Router handled conversation itself
-  return {
-    shouldRoute: false,
-    confidence: 0.9
-  };
-}
-
-/**
- * ✅ NEW: Ensure user exists in database (create if needed)
- * This fixes the foreign key constraint error
- */
-async function ensureUserExists(userId: string): Promise<void> {
-  try {
-    // Check if user already exists
-    const [existingUser] = await db
-      .select()
-      .from(users)
-      .where(eq(users.clerkId, userId))
-      .limit(1);
-
-    if (existingUser) {
-      console.log('👤 User already exists:', userId);
-      return;
-    }
-
-    // Create user if they don't exist
-    const [newUser] = await db
-      .insert(users)
-      .values({
-        clerkId: userId,
-        email: `user-${userId}@temp.com`, // Temporary email
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .returning();
-
-    console.log('🆕 Created new user:', newUser.clerkId);
-  } catch (error) {
-    console.error('❌ Error ensuring user exists:', error);
-    throw new Error('Failed to create or verify user');
-  }
-} 

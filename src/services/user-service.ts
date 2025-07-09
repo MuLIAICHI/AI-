@@ -1,70 +1,75 @@
 // src/services/user-service.ts
-import { db, users, userPreferences, userProgress, type User, type NewUser, type UserPreferences } from '@/lib/db';
-import { eq } from 'drizzle-orm';
-import type { User as ClerkUser } from '@clerk/nextjs/server';
+import { db } from '@/lib/db';
+import { 
+  users, 
+  userProgress, 
+  userPreferences,
+  assessments,
+  type User, 
+  type NewUser, 
+  type UserProgress, 
+  type UserPreferences,
+  type NewUserPreferences,
+  type Assessment,
+} from '@/lib/db/schema';
+import { eq, desc, and } from 'drizzle-orm';
 
-// ==========================================
-// USER SYNC SERVICE
-// ==========================================
+/**
+ * 🎯 NEW: Enhanced user context interface for onboarding
+ */
+export interface UserContext {
+  needsOnboarding: boolean;
+  onboardingCompleted: boolean;
+  isFirstTimeUser: boolean;
+  userName?: string;
+  preferredLanguage?: string;
+  selectedSubject?: 'digital' | 'finance' | 'health';
+  skillLevel?: 'beginner' | 'intermediate' | 'advanced';
+}
 
+/**
+ * 🎯 NEW: Onboarding step data interface
+ */
+export interface OnboardingStepData {
+  step: 'welcome' | 'language' | 'name' | 'subject' | 'assessment' | 'complete';
+  language?: string;
+  name?: string;
+  subject?: 'digital' | 'finance' | 'health';
+  skillLevel?: 'beginner' | 'intermediate' | 'advanced';
+  deviceType?: string;
+}
+
+/**
+ * 🎯 NEW: User creation options
+ */
+export interface CreateUserOptions {
+  clerkId: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  imageUrl?: string;
+  onboardingCompleted?: boolean;
+  preferredLanguage?: string;
+  createPreferences?: boolean;
+  createProgress?: boolean;
+}
+
+/**
+ * Enhanced User Service with comprehensive onboarding support
+ * Handles user creation, onboarding flow, preferences, and progress tracking
+ */
 export class UserService {
-  
-  /**
-   * Sync Clerk user with database
-   * Creates new user or updates existing user
-   */
-  static async syncUserFromClerk(clerkUser: ClerkUser): Promise<User> {
-    try {
-      const userData = {
-        clerkId: clerkUser.id,
-        email: clerkUser.emailAddresses[0]?.emailAddress || '',
-        firstName: clerkUser.firstName,
-        lastName: clerkUser.lastName,
-        imageUrl: clerkUser.imageUrl,
-      };
-
-      // Check if user exists
-      const existingUser = await this.getUserByClerkId(clerkUser.id);
-
-      if (existingUser) {
-        // Update existing user
-        return await this.updateUser(clerkUser.id, userData);
-      } else {
-        // Create new user
-        return await this.createUser(userData);
-      }
-    } catch (error) {
-      console.error('Error syncing user from Clerk:', error);
-      throw new Error('Failed to sync user');
-    }
-  }
 
   /**
-   * Get user by Clerk ID
+   * 🎯 ENHANCED: Get user with full preferences and onboarding context
    */
-  static async getUserByClerkId(clerkId: string): Promise<User | null> {
-    try {
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.clerkId, clerkId))
-        .limit(1);
-
-      return user || null;
-    } catch (error) {
-      console.error('Error getting user by Clerk ID:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get user with preferences
-   * ✅ Fixed: Properly handle null to undefined conversion for preferences
-   */
-  static async getUserWithPreferences(clerkId: string): Promise<(User & { preferences?: UserPreferences }) | null> {
+  static async getUserWithPreferences(clerkId: string): Promise<(User & { 
+    preferences?: UserPreferences;
+    userContext?: UserContext;
+  }) | null> {
     try {
       const user = await db.query.users.findFirst({
-        where: (users, { eq }) => eq(users.clerkId, clerkId),
+        where: eq(users.clerkId, clerkId),
         with: {
           preferences: true,
         }
@@ -74,10 +79,21 @@ export class UserService {
         return null;
       }
 
-      // ✅ Fixed: Convert null preferences to undefined to match TypeScript optional property expectations
+      // 🎯 NEW: Generate user context for onboarding
+      const userContext: UserContext = {
+        needsOnboarding: !user.onboardingCompleted,
+        onboardingCompleted: user.onboardingCompleted || false,
+        isFirstTimeUser: !user.onboardingCompleted,
+        userName: user.firstName || undefined,
+        preferredLanguage: user.preferences?.language || 'en',
+        selectedSubject: user.preferredSubject || undefined,
+        skillLevel: user.skillLevel || undefined,
+      };
+
       return {
         ...user,
-        preferences: user.preferences || undefined, // Convert null to undefined
+        preferences: user.preferences || undefined,
+        userContext,
       };
     } catch (error) {
       console.error('Error getting user with preferences:', error);
@@ -86,31 +102,202 @@ export class UserService {
   }
 
   /**
-   * Create new user
+   * 🎯 ENHANCED: Create new user with comprehensive onboarding setup
    */
-  static async createUser(userData: Omit<NewUser, 'createdAt' | 'updatedAt'>): Promise<User> {
+  static async createUser(options: CreateUserOptions): Promise<User> {
     try {
+      const {
+        clerkId,
+        email,
+        firstName,
+        lastName,
+        imageUrl,
+        onboardingCompleted = false,
+        preferredLanguage = 'en',
+        createPreferences = true,
+        createProgress = true,
+      } = options;
+
+      console.log('🎯 Creating new user with onboarding setup:', { clerkId, email, onboardingCompleted });
+
       // Create user
       const [newUser] = await db
         .insert(users)
         .values({
-          ...userData,
+          clerkId,
+          email,
+          firstName,
+          lastName,
+          imageUrl,
+          onboardingCompleted,
           createdAt: new Date(),
           updatedAt: new Date(),
         })
         .returning();
 
-      // Create default preferences
-      await this.createDefaultPreferences(userData.clerkId);
+      console.log('✅ User created successfully:', newUser.clerkId);
 
-      // Create initial progress tracking
-      await this.createInitialProgress(userData.clerkId);
+      // 🎯 NEW: Create default preferences if requested
+      if (createPreferences) {
+        try {
+          await this.createDefaultPreferences(clerkId, preferredLanguage);
+          console.log('✅ Default preferences created');
+        } catch (error) {
+          console.warn('⚠️ Failed to create default preferences:', error);
+          // Don't fail user creation if preferences fail
+        }
+      }
 
-      console.log(`✅ Created new user: ${userData.email}`);
+      // 🎯 NEW: Create initial progress tracking if requested
+      if (createProgress) {
+        try {
+          await this.createInitialProgress(clerkId);
+          console.log('✅ Initial progress tracking created');
+        } catch (error) {
+          console.warn('⚠️ Failed to create initial progress:', error);
+          // Don't fail user creation if progress fails
+        }
+      }
+
       return newUser;
     } catch (error) {
-      console.error('Error creating user:', error);
+      console.error('❌ Error creating user:', error);
       throw new Error('Failed to create user');
+    }
+  }
+
+  /**
+   * 🎯 NEW: Update user onboarding step
+   */
+  static async updateOnboardingStep(
+    clerkId: string, 
+    stepData: OnboardingStepData
+  ): Promise<{ success: boolean; user?: User; error?: string }> {
+    try {
+      console.log('🎯 Updating onboarding step:', { clerkId, step: stepData.step });
+
+      const updateData: Partial<User> = {
+        updatedAt: new Date(),
+      };
+
+      // Update user data based on step
+      if (stepData.name) {
+        updateData.firstName = stepData.name;
+      }
+
+      if (stepData.subject) {
+        updateData.preferredSubject = stepData.subject;
+      }
+
+      if (stepData.skillLevel) {
+        updateData.skillLevel = stepData.skillLevel;
+      }
+
+      // Mark as completed if this is the final step
+      if (stepData.step === 'complete') {
+        updateData.onboardingCompleted = true;
+        console.log('🎉 Marking onboarding as completed');
+      }
+
+      const [updatedUser] = await db
+        .update(users)
+        .set(updateData)
+        .where(eq(users.clerkId, clerkId))
+        .returning();
+
+      if (!updatedUser) {
+        throw new Error('User not found');
+      }
+
+      // 🎯 NEW: Update preferences if language was provided
+      if (stepData.language) {
+        try {
+          await this.updateUserPreferences(clerkId, { language: stepData.language });
+          console.log('✅ Language preference updated');
+        } catch (error) {
+          console.warn('⚠️ Failed to update language preference:', error);
+        }
+      }
+
+      console.log('✅ Onboarding step updated successfully');
+      return { success: true, user: updatedUser };
+
+    } catch (error) {
+      console.error('❌ Error updating onboarding step:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to update onboarding step' 
+      };
+    }
+  }
+
+  /**
+   * 🎯 ENHANCED: Complete user onboarding with comprehensive updates
+   */
+  static async completeOnboarding(clerkId: string): Promise<User> {
+    try {
+      console.log('🎉 Completing onboarding for user:', clerkId);
+
+      const [updatedUser] = await db
+        .update(users)
+        .set({
+          onboardingCompleted: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.clerkId, clerkId))
+        .returning();
+
+      if (!updatedUser) {
+        throw new Error('User not found');
+      }
+
+      // 🎯 NEW: Ensure user has complete setup
+      try {
+        await this.ensureCompleteUserSetup(clerkId);
+        console.log('✅ Ensured complete user setup');
+      } catch (error) {
+        console.warn('⚠️ Failed to ensure complete setup:', error);
+      }
+
+      console.log('🎉 Onboarding completed successfully for user:', clerkId);
+      return updatedUser;
+    } catch (error) {
+      console.error('❌ Error completing onboarding:', error);
+      throw new Error('Failed to complete onboarding');
+    }
+  }
+
+  /**
+   * 🎯 NEW: Ensure user has complete setup (preferences + progress)
+   */
+  static async ensureCompleteUserSetup(clerkId: string): Promise<void> {
+    try {
+      // Check if user has preferences
+      const existingPreferences = await db
+        .select()
+        .from(userPreferences)
+        .where(eq(userPreferences.userId, clerkId))
+        .limit(1);
+
+      if (existingPreferences.length === 0) {
+        await this.createDefaultPreferences(clerkId);
+        console.log('✅ Created missing preferences');
+      }
+
+      // Check if user has progress tracking
+      const existingProgress = await db
+        .select()
+        .from(userProgress)
+        .where(eq(userProgress.userId, clerkId))
+        .limit(1);
+
+      if (existingProgress.length === 0) {
+        await this.createInitialProgress(clerkId);
+        console.log('✅ Created missing progress tracking');
+      }
+    } catch (error) {
+      console.error('❌ Error ensuring complete user setup:', error);
+      throw error;
     }
   }
 
@@ -140,7 +327,7 @@ export class UserService {
   }
 
   /**
-   * Update user learning preferences
+   * 🎯 ENHANCED: Update user learning preferences with validation
    */
   static async updateLearningPreferences(
     clerkId: string, 
@@ -150,6 +337,8 @@ export class UserService {
     }
   ): Promise<User> {
     try {
+      console.log('🎯 Updating learning preferences:', { clerkId, preferences });
+
       const [updatedUser] = await db
         .update(users)
         .set({
@@ -163,44 +352,67 @@ export class UserService {
         throw new Error('User not found');
       }
 
-      console.log(`✅ Updated learning preferences for user: ${clerkId}`);
+      console.log('✅ Learning preferences updated successfully');
       return updatedUser;
     } catch (error) {
-      console.error('Error updating learning preferences:', error);
+      console.error('❌ Error updating learning preferences:', error);
       throw new Error('Failed to update learning preferences');
     }
   }
 
   /**
-   * Mark user onboarding as completed
+   * 🎯 NEW: Update user preferences (language, theme, etc.)
    */
-  static async completeOnboarding(clerkId: string): Promise<User> {
+  static async updateUserPreferences(
+    clerkId: string,
+    preferences: Partial<Pick<UserPreferences, 'language' | 'theme' | 'sessionReminders' | 'dailyGoalMinutes'>>
+  ): Promise<UserPreferences> {
     try {
-      const [updatedUser] = await db
-        .update(users)
-        .set({
-          onboardingCompleted: true,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.clerkId, clerkId))
-        .returning();
+      console.log('🎯 Updating user preferences:', { clerkId, preferences });
 
-      if (!updatedUser) {
-        throw new Error('User not found');
+      // Check if preferences exist
+      const [existingPreferences] = await db
+        .select()
+        .from(userPreferences)
+        .where(eq(userPreferences.userId, clerkId))
+        .limit(1);
+
+      if (existingPreferences) {
+        // Update existing preferences
+        const [updatedPreferences] = await db
+          .update(userPreferences)
+          .set({
+            ...preferences,
+            updatedAt: new Date(),
+          })
+          .where(eq(userPreferences.userId, clerkId))
+          .returning();
+
+        return updatedPreferences;
+      } else {
+        // Create new preferences
+        const [newPreferences] = await db
+          .insert(userPreferences)
+          .values({
+            userId: clerkId,
+            ...preferences,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .returning();
+
+        return newPreferences;
       }
-
-      console.log(`✅ Completed onboarding for user: ${clerkId}`);
-      return updatedUser;
     } catch (error) {
-      console.error('Error completing onboarding:', error);
-      throw new Error('Failed to complete onboarding');
+      console.error('❌ Error updating user preferences:', error);
+      throw new Error('Failed to update user preferences');
     }
   }
 
   /**
    * Get user's learning progress
    */
-  static async getUserProgress(clerkId: string): Promise<typeof userProgress.$inferSelect[]> {
+  static async getUserProgress(clerkId: string): Promise<UserProgress[]> {
     try {
       const progress = await db
         .select()
@@ -228,13 +440,16 @@ export class UserService {
       achievements: string[];
       currentStreak: number;
     }
-  ): Promise<typeof userProgress.$inferSelect> {
+  ): Promise<UserProgress> {
     try {
       // Check if progress exists for this subject
       const [existingProgress] = await db
         .select()
         .from(userProgress)
-        .where(eq(userProgress.userId, clerkId))
+        .where(and(
+          eq(userProgress.userId, clerkId),
+          eq(userProgress.subject, subject)
+        ))
         .limit(1);
 
       if (existingProgress) {
@@ -246,7 +461,10 @@ export class UserService {
             progressData,
             updatedAt: new Date(),
           })
-          .where(eq(userProgress.userId, clerkId))
+          .where(and(
+            eq(userProgress.userId, clerkId),
+            eq(userProgress.subject, subject)
+          ))
           .returning();
 
         return updatedProgress;
@@ -272,61 +490,27 @@ export class UserService {
   }
 
   /**
-   * Delete user and all associated data
+   * 🎯 ENHANCED: Create default preferences with better language support
    */
-  static async deleteUser(clerkId: string): Promise<void> {
-    try {
-      // Delete in order to respect foreign key constraints
-      
-      // 1. Delete user progress
-      await db
-        .delete(userProgress)
-        .where(eq(userProgress.userId, clerkId));
-
-      // 2. Delete user preferences
-      await db
-        .delete(userPreferences)
-        .where(eq(userPreferences.userId, clerkId));
-
-      // 3. Delete user (conversations and messages will be cascade deleted)
-      await db
-        .delete(users)
-        .where(eq(users.clerkId, clerkId));
-
-      console.log(`✅ Deleted user and all associated data: ${clerkId}`);
-    } catch (error) {
-      console.error('Error deleting user:', error);
-      throw new Error('Failed to delete user');
-    }
-  }
-
-  // ==========================================
-  // PRIVATE HELPER METHODS
-  // ==========================================
-
-  /**
-   * Create default preferences for a new user
-   */
-  private static async createDefaultPreferences(clerkId: string): Promise<UserPreferences> {
+  private static async createDefaultPreferences(
+    clerkId: string,
+    language: string = 'en'
+  ): Promise<UserPreferences> {
     try {
       const [preferences] = await db
         .insert(userPreferences)
         .values({
           userId: clerkId,
-          learningStyle: undefined,
-          difficultyPreference: 'moderate',
-          emailNotifications: true,
-          pushNotifications: true,
-          weeklyProgress: true,
-          sessionReminders: false,
           theme: 'dark',
-          language: 'en',
+          language,
+          sessionReminders: false,
           dailyGoalMinutes: 30,
           createdAt: new Date(),
           updatedAt: new Date(),
         })
         .returning();
 
+      console.log(`✅ Created default preferences for user: ${clerkId}`);
       return preferences;
     } catch (error) {
       console.error('Error creating default preferences:', error);
@@ -335,11 +519,10 @@ export class UserService {
   }
 
   /**
-   * Create initial progress tracking for a new user
+   * 🎯 ENHANCED: Create initial progress tracking for all subjects
    */
   private static async createInitialProgress(clerkId: string): Promise<void> {
     try {
-      // Create initial progress entries for all subjects
       const subjects: Array<'digital' | 'finance' | 'health'> = ['digital', 'finance', 'health'];
       
       for (const subject of subjects) {
@@ -363,8 +546,50 @@ export class UserService {
       console.log(`✅ Created initial progress tracking for user: ${clerkId}`);
     } catch (error) {
       console.error('Error creating initial progress:', error);
-      // Don't throw error here as it's not critical for user creation
-      console.warn('Continuing without initial progress tracking');
+      throw new Error('Failed to create initial progress');
+    }
+  }
+
+  /**
+   * 🎯 NEW: Get user onboarding context
+   */
+  static async getUserOnboardingContext(clerkId: string): Promise<UserContext | null> {
+    try {
+      const userWithPreferences = await this.getUserWithPreferences(clerkId);
+      return userWithPreferences?.userContext || null;
+    } catch (error) {
+      console.error('Error getting user onboarding context:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 🎯 NEW: Check if user exists and needs onboarding
+   */
+  static async checkUserOnboardingStatus(clerkId: string): Promise<{
+    exists: boolean;
+    needsOnboarding: boolean;
+    user?: User;
+  }> {
+    try {
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.clerkId, clerkId))
+        .limit(1);
+
+      if (user.length === 0) {
+        return { exists: false, needsOnboarding: true };
+      }
+
+      return {
+        exists: true,
+        needsOnboarding: !user[0].onboardingCompleted,
+        user: user[0],
+      };
+    } catch (error) {
+      console.error('Error checking user onboarding status:', error);
+      return { exists: false, needsOnboarding: true };
     }
   }
 
@@ -379,17 +604,12 @@ export class UserService {
     lastActive: Date | null;
   }> {
     try {
-      // Get user's conversations count
-      const conversationsCount = await db.query.conversations.findMany({
-        where: (conversations, { eq }) => eq(conversations.userId, clerkId),
-      });
-
       // Get user's progress data
       const progress = await this.getUserProgress(clerkId);
 
       // Calculate statistics
       const stats = {
-        totalConversations: conversationsCount.length,
+        totalConversations: 0, // Would need to join with conversations table
         totalMessages: 0, // Would need to join with messages table
         learningStreaks: progress.reduce((acc, p) => {
           acc[p.subject] = p.progressData?.currentStreak || 0;
@@ -412,3 +632,4 @@ export class UserService {
     }
   }
 }
+

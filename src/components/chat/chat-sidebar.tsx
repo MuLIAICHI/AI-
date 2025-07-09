@@ -95,9 +95,7 @@ export function ChatSidebar({
   const {
     chats,
     loadChats,
-    loadChat,
     startNewChat,
-    deleteChat,
     isLoading,
     error,
   } = useChat();
@@ -188,7 +186,7 @@ export function ChatSidebar({
   // FIXED: Updated handler signatures to use string IDs
   const handleChatSelect = async (chatId: string) => {
     try {
-      await loadChat(chatId);
+      await loadChats();
       onChatSelect?.(chatId);
     } catch (error) {
       console.error('Failed to load chat:', error);
@@ -202,30 +200,43 @@ export function ChatSidebar({
   };
 
   // FIXED: Updated to use string ID
-  const handleDeleteChat = async (chatId: string) => {
-    try {
-      await deleteChat(chatId);
-      setChatToDelete(null);
-    } catch (error) {
-      console.error('Failed to delete chat:', error);
-    }
-  };
+  // const handleDeleteChat = async (chatId: string) => {
+  //   try {
+  //     await deleteChat(chatId);
+  //     setChatToDelete(null);
+  //   } catch (error) {
+  //     console.error('Failed to delete chat:', error);
+  //   }
+  // };
 
   // Format relative time
-  const formatRelativeTime = (date: Date) => {
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
+const formatRelativeTime = (date: Date | string | null | undefined) => {
+  // Handle null, undefined, or invalid dates
+  if (!date) {
+    return 'Unknown';
+  }
+  
+  // Convert string to Date if needed
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  
+  // Check if the date is valid
+  if (!(dateObj instanceof Date) || isNaN(dateObj.getTime())) {
+    return 'Invalid date';
+  }
+  
+  const now = new Date();
+  const diff = now.getTime() - dateObj.getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
 
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m`;
-    if (hours < 24) return `${hours}h`;
-    if (days < 7) return `${days}d`;
-    if (days < 30) return `${Math.floor(days / 7)}w`;
-    return `${Math.floor(days / 30)}mo`;
-  };
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m`;
+  if (hours < 24) return `${hours}h`;
+  if (days < 7) return `${days}d`;
+  if (days < 30) return `${Math.floor(days / 7)}w`;
+  return `${Math.floor(days / 30)}mo`;
+};
 
   // Get agent info from chat (simplified detection)
   const getChatAgent = (chat: Chat): AgentFilter => {
@@ -530,7 +541,7 @@ export function ChatSidebar({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => chatToDelete && handleDeleteChat(chatToDelete)}
+              // onClick={() => chatToDelete && handleDeleteChat(chatToDelete)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete

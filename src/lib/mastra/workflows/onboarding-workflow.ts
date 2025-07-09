@@ -1,5 +1,5 @@
 // src/mastra/workflows/onboarding-workflow.ts
-import { createWorkflow, createStep } from '@mastra/core/workflows/vNext';
+import { createWorkflow, createStep } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { languageTool, userProfileTool } from '../tools';
 
