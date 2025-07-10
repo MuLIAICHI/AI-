@@ -1,4 +1,4 @@
-// src/app/(dashboard)/chat/page.tsx - LAYOUT FIX
+// src/app/(dashboard)/chat/page.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -6,8 +6,8 @@ import { useUser } from '@clerk/nextjs';
 import { useChat } from '@/hooks/use-chat';
 import { ChatSidebar } from '@/components/chat/chat-sidebar';
 import { ChatWindow } from '@/components/chat/chat-window';
+import { SettingsDialog } from '@/components/settings/settings-dialog';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   Menu, 
@@ -45,6 +45,9 @@ export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  
+  // ✅ NEW: Settings dialog state
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Handle responsive behavior
   useEffect(() => {
@@ -75,102 +78,34 @@ export default function ChatPage() {
     }
   };
 
-  const handleRetry = () => {
-    clearError();
-    loadChats();
-  };
-
-  // Loading state
+  // Show loading while user data loads
   if (!isLoaded) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="flex flex-col items-center gap-4 text-muted-foreground">
-          <div className="relative">
-            <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-              <Brain className="w-6 h-6 text-white" />
-            </div>
-            <div className="absolute -top-1 -right-1">
-              <Loader2 className="w-4 h-4 animate-spin text-primary" />
-            </div>
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <Brain className="w-8 h-8 text-white" />
           </div>
-          <div className="text-center">
-            <p className="font-medium">Loading Smartlyte AI...</p>
-            <p className="text-sm">Preparing your learning experience</p>
-          </div>
+          <p className="text-slate-300">Loading...</p>
         </div>
-      </div>
-    );
-  }
-
-  // User not signed in
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6">
-            <div className="flex flex-col items-center text-center space-y-4">
-              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                <Brain className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold">Welcome to Smartlyte AI</h2>
-                <p className="text-muted-foreground mt-1">
-                  Please sign in to start your learning journey
-                </p>
-              </div>
-              <Button 
-                onClick={() => window.location.href = '/sign-in'}
-                className="w-full"
-              >
-                Sign In to Continue
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     );
   }
 
   return (
-    /* ✅ FIXED: Main container with proper height constraints */
-    <div className="h-screen w-full flex bg-background overflow-hidden">
-      
-      {/* Mobile Sidebar Overlay */}
-      {isMobile && sidebarOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div 
-            className="fixed inset-0 bg-black/50 transition-opacity backdrop-blur-sm"
-            onClick={() => setSidebarOpen(false)}
-          />
-          <div className="fixed left-0 top-0 h-full w-80 bg-background shadow-xl border-r">
-            <div className="flex items-center justify-between p-4 border-b">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-primary" />
-                <h2 className="font-semibold">Conversations</h2>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSidebarOpen(false)}
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-            <ChatSidebar
-              currentChatId={currentChatId}
-              onChatSelect={handleChatSelect}
-              onNewChat={handleNewChat}
-              isMobile={true}
-              className="border-0 h-[calc(100vh-73px)]"
-            />
-          </div>
-        </div>
+    <div className="h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex">
+      {/* Mobile Sidebar Backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
 
-      {/* Desktop Sidebar */}
+      {/* Sidebar */}
       {!isMobile && (
         <div className={cn(
-          "border-r bg-muted/30 transition-all duration-300 ease-in-out flex-shrink-0",
+          "border-r border-slate-800/50 transition-all duration-300 ease-in-out",
           sidebarCollapsed ? "w-16" : "w-80"
         )}>
           <ChatSidebar
@@ -183,11 +118,11 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* ✅ FIXED: Main Content Area with proper flex layout */}
+      {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-full">
         
-        {/* ✅ FIXED: Header with fixed height */}
-        <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0 h-16">
+        {/* Header */}
+        <header className="border-b border-slate-800/50 bg-slate-900/50 backdrop-blur-sm flex-shrink-0 h-16">
           <div className="flex items-center justify-between p-4 h-full">
             <div className="flex items-center gap-3">
               {/* Mobile Menu Button */}
@@ -196,7 +131,7 @@ export default function ChatPage() {
                   variant="ghost"
                   size="sm"
                   onClick={() => setSidebarOpen(true)}
-                  className="mr-2"
+                  className="mr-2 text-white hover:bg-slate-800"
                 >
                   <Menu className="w-5 h-5" />
                 </Button>
@@ -208,86 +143,84 @@ export default function ChatPage() {
                   variant="ghost"
                   size="sm"
                   onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                  className="mr-2"
+                  className="mr-2 text-white hover:bg-slate-800"
                   title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 >
                   <Sidebar className="w-4 h-4" />
                 </Button>
               )}
 
-              {/* Page Title & Status */}
+              {/* Title */}
               <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                    <Brain className="w-4 h-4 text-white" />
-                  </div>
-                  <div>
-                    <h1 className="text-lg font-semibold">Smartlyte AI</h1>
-                    {currentChatId && (
-                      <p className="text-xs text-muted-foreground">
-                        Active conversation
-                      </p>
-                    )}
-                  </div>
+                <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                  <Brain className="w-4 h-4 text-white" />
                 </div>
-
-                {/* Connection Status */}
-                {isLoading && (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span className="text-sm">Loading...</span>
-                  </div>
-                )}
+                <h1 className="text-lg font-semibold text-white">
+                  Smartlyte AI
+                </h1>
               </div>
             </div>
 
             {/* Header Actions */}
             <div className="flex items-center gap-2">
+              {/* New Chat Button */}
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={handleNewChat}
-                className="flex items-center gap-2"
+                className="text-white hover:bg-slate-800"
+                title="Start new conversation"
               >
                 <Plus className="w-4 h-4" />
-                {!isMobile && "New Chat"}
+                {!isMobile && <span className="ml-2">New Chat</span>}
               </Button>
 
-              <Button variant="ghost" size="sm">
+              {/* ✅ NEW: Settings Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSettingsOpen(true)}
+                className="text-white hover:bg-slate-800"
+                title="Open settings"
+              >
                 <Settings className="w-4 h-4" />
               </Button>
 
-              <Button variant="ghost" size="sm">
+              {/* Help Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:bg-slate-800"
+                title="Help & Support"
+              >
                 <HelpCircle className="w-4 h-4" />
               </Button>
             </div>
           </div>
         </header>
 
-        {/* ✅ FIXED: Error Alert with fixed positioning */}
+        {/* Error Alert */}
         {error && (
-          <div className="p-4 flex-shrink-0">
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription className="flex items-center justify-between">
-                <span>{error}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRetry}
-                >
-                  <RefreshCw className="w-3 h-3 mr-1" />
-                  Retry
-                </Button>
-              </AlertDescription>
-            </Alert>
-          </div>
+          <Alert className="m-4 border-red-500/50 bg-red-500/10">
+            <AlertCircle className="h-4 w-4 text-red-500" />
+            <AlertDescription className="text-red-200">
+              {error}
+              <Button
+                variant="link"
+                size="sm"
+                onClick={clearError}
+                className="ml-2 text-red-300 hover:text-red-100 p-0 h-auto"
+              >
+                Dismiss
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
 
-        {/* ✅ FIXED: Chat Window with calculated height */}
+        {/* Chat Window */}
         <div className={cn(
-          "flex-1 min-h-0 overflow-hidden",
-          error ? "h-[calc(100vh-160px)]" : "h-[calc(100vh-64px)]"
+          "flex-1 min-h-0",
+          isMobile && sidebarOpen ? "h-[calc(100vh-160px)]" : "h-[calc(100vh-64px)]"
         )}>
           <ChatWindow 
             className="h-full w-full"
@@ -295,6 +228,28 @@ export default function ChatPage() {
           />
         </div>
       </div>
+
+      {/* Mobile Sidebar */}
+      {isMobile && (
+        <div className={cn(
+          "fixed inset-y-0 left-0 z-50 w-80 bg-slate-900/95 backdrop-blur-sm border-r border-slate-800/50 transform transition-transform duration-300 ease-in-out",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        )}>
+          <ChatSidebar
+            currentChatId={currentChatId}
+            onChatSelect={handleChatSelect}
+            onNewChat={handleNewChat}
+            isMobile={isMobile}
+            className="h-full"
+          />
+        </div>
+      )}
+
+      {/* ✅ NEW: Settings Dialog */}
+      <SettingsDialog 
+        open={settingsOpen} 
+        onOpenChange={setSettingsOpen} 
+      />
     </div>
   );
 }
