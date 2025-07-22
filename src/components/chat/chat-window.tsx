@@ -1,128 +1,187 @@
 // src/components/chat/chat-window.tsx
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from '@/hooks/use-chat';
+import { MessageItem, TypingIndicator } from '@/components/chat/message-item';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Progress } from '@/components/ui/progress';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   Send, 
-  Square, 
+  Loader2, 
   Bot, 
-  User, 
-  AlertCircle, 
-  RefreshCw,
-  Sparkles,
+  Sparkles, 
+  MessageSquare,
   Computer,
   DollarSign,
   Heart,
-  CheckCircle,
-  Clock,
-  Globe,
-  UserPlus,
+  Zap,
   Target,
-  Award,
-  ArrowRight
+  BookOpen,
+  AlertCircle,
+  RefreshCw,
+  User
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+// ==========================================
+// INTERFACES
+// ==========================================
 
 interface ChatWindowProps {
   className?: string;
   showWelcome?: boolean;
-  initialAgentId?: 'router' | 'digital-mentor' | 'finance-guide' | 'health-coach';
 }
 
-/**
- * 🎯 NEW: User onboarding context interface
- */
-interface UserContext {
-  needsOnboarding: boolean;
-  onboardingCompleted: boolean;
-  isFirstTimeUser: boolean;
-  userName?: string;
-}
-
-/**
- * 🎯 NEW: Onboarding step tracking
- */
-interface OnboardingStep {
+// Message interface to match our enhanced system
+interface Message {
   id: string;
-  title: string;
-  description: string;
-  icon: React.ComponentType<{ className?: string }>;
-  completed: boolean;
+  content: string;
+  role: 'user' | 'assistant' | 'system'; // Added 'system' to match useChat
+  createdAt: Date;
+  agentName?: string;
+  metadata?: {
+    tokenUsage?: number;
+    responseTime?: number;
+    confidence?: number;
+    isStreaming?: boolean;
+  };
 }
 
-/**
- * Enhanced chat interface component for Smartlyte AI
- * Now includes comprehensive onboarding support and dynamic welcome experience
- */
-export function ChatWindow({ 
-  className, 
-  showWelcome = true,
-  initialAgentId 
-}: ChatWindowProps) {
+// ==========================================
+// AGENT CONFIGURATION
+// ==========================================
+
+const AGENT_CONFIG = {
+  'router': {
+    name: 'Smart Router',
+    emoji: '🤖',
+    icon: Bot,
+    description: 'I analyze your questions and connect you with the right specialist',
+    color: 'text-blue-500',
+    bgColor: 'bg-blue-50 dark:bg-blue-950/20',
+  },
+  'digital-mentor': {
+    name: 'Digital Mentor',
+    emoji: '🖥️',
+    icon: Computer,
+    description: 'Your patient guide to mastering essential digital skills',
+    color: 'text-purple-500',
+    bgColor: 'bg-purple-50 dark:bg-purple-950/20',
+  },
+  'finance-guide': {
+    name: 'Finance Guide',
+    emoji: '💰',
+    icon: DollarSign,
+    description: 'Your trusted guide for smart money management',
+    color: 'text-green-500',
+    bgColor: 'bg-green-50 dark:bg-green-950/20',
+  },
+  'health-coach': {
+    name: 'Health Coach',
+    emoji: '🏥',
+    icon: Heart,
+    description: 'Your caring companion for healthy living',
+    color: 'text-red-500',
+    bgColor: 'bg-red-50 dark:bg-red-950/20',
+  },
+} as const;
+
+// ==========================================
+// WELCOME MESSAGE COMPONENT
+// ==========================================
+
+function WelcomeMessage() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[400px] text-center space-y-6 p-8">
+      {/* Header */}
+      <div className="space-y-4">
+        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto">
+          <Sparkles className="w-8 h-8 text-white" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-200 mb-2">
+            Welcome to Smartlyte AI
+          </h1>
+          <p className="text-slate-600 dark:text-slate-400 max-w-md">
+            Your intelligent learning companion for digital skills, finance, and health guidance
+          </p>
+        </div>
+      </div>
+
+      {/* Agent Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl w-full">
+        {Object.entries(AGENT_CONFIG).filter(([key]) => key !== 'router').map(([key, agent]) => {
+          const IconComponent = agent.icon;
+          return (
+            <Card key={key} className={cn(
+              "p-4 transition-all duration-200 hover:shadow-md border-2 hover:border-primary/50",
+              agent.bgColor
+            )}>
+              <CardContent className="p-0 text-center space-y-3">
+                <div className={cn("w-12 h-12 rounded-full flex items-center justify-center mx-auto", 
+                  "bg-white dark:bg-slate-800 shadow-sm"
+                )}>
+                  <IconComponent className={cn("w-6 h-6", agent.color)} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-800 dark:text-slate-200 mb-1">
+                    {agent.name}
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    {agent.description}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Quick Start */}
+      <div className="space-y-3">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          Try asking me something like:
+        </p>
+        <div className="flex flex-wrap justify-center gap-2">
+          {[
+            "How do I set up email?",
+            "Help me create a budget",
+            "What are healthy eating tips?"
+          ].map((suggestion, index) => (
+            <Badge key={index} variant="outline" className="cursor-pointer hover:bg-primary/10">
+              {suggestion}
+            </Badge>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// MAIN CHAT WINDOW COMPONENT
+// ==========================================
+
+export function ChatWindow({ className, showWelcome = false }: ChatWindowProps) {
   const {
     messages,
     isLoading,
-    isStreaming,
     error,
     sendMessage,
-    stopStreaming,
     clearError,
     retryLastMessage,
   } = useChat();
 
+  // Local input state (since useChat doesn't provide input/setInput)
   const [input, setInput] = useState('');
-  const [selectedAgent, setSelectedAgent] = useState<string | undefined>(initialAgentId || 'router');
-  const [userContext, setUserContext] = useState<UserContext | null>(null);
-  const [showOnboardingSteps, setShowOnboardingSteps] = useState(false);
-  
+  const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // 🎯 NEW: Onboarding steps configuration
-  const onboardingSteps: OnboardingStep[] = [
-    {
-      id: 'welcome',
-      title: 'Welcome',
-      description: 'Get introduced to Smartlyte',
-      icon: Sparkles,
-      completed: userContext?.isFirstTimeUser === false,
-    },
-    {
-      id: 'language',
-      title: 'Language',
-      description: 'Choose your preferred language',
-      icon: Globe,
-      completed: false, // Would be determined by actual progress
-    },
-    {
-      id: 'profile',
-      title: 'Profile',
-      description: 'Set up your learning profile',
-      icon: UserPlus,
-      completed: false,
-    },
-    {
-      id: 'subject',
-      title: 'Learning Area',
-      description: 'Choose your focus area',
-      icon: Target,
-      completed: false,
-    },
-    {
-      id: 'complete',
-      title: 'Ready!',
-      description: 'Start your learning journey',
-      icon: Award,
-      completed: userContext?.onboardingCompleted || false,
-    },
-  ];
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -134,357 +193,65 @@ export function ChatWindow({
     inputRef.current?.focus();
   }, []);
 
-  // 🎯 NEW: Update user context when messages arrive
-  useEffect(() => {
-    if (messages.length > 0) {
-      const latestMessage = messages[messages.length - 1];
-      if (latestMessage.metadata?.userContext) {
-        setUserContext(latestMessage.metadata.userContext);
-      }
-    }
-  }, [messages]);
-
-  /**
-   * Handle form submission with enhanced context tracking
-   */
+  // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isStreaming) return;
+    
+    if (!input.trim() || isLoading) return;
 
-    const message = input.trim();
+    const messageContent = input.trim();
     setInput('');
+    setIsStreaming(true);
     
-    const agentToUse = selectedAgent || 'router';
-    
-    console.log('🎯 Sending message with agent:', agentToUse);
-    
-    // Send message and expect enhanced response with user context
-    const response = await sendMessage(message, {
-      agentId: agentToUse as any,
-      stream: true,
-    });
-
-    // 🎯 NEW: Handle onboarding completion
-    if (response?.userContext?.onboardingCompleted && userContext?.needsOnboarding) {
-      setUserContext(prev => prev ? { ...prev, onboardingCompleted: true, needsOnboarding: false } : null);
-      
-      // Show celebration for completed onboarding
-      setTimeout(() => {
-        setShowOnboardingSteps(false);
-      }, 2000);
+    try {
+      await sendMessage(messageContent);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    } finally {
+      setIsStreaming(false);
     }
   };
 
-  /**
-   * Handle agent selection
-   */
-  const handleAgentSelect = (agentId: string) => {
-    console.log('🔄 Agent selected:', agentId);
-    setSelectedAgent(agentId);
+  // Handle message copy
+  const handleCopy = (content: string) => {
+    console.log('Message copied:', content.substring(0, 50) + '...');
   };
 
-  /**
-   * Get agent configuration
-   */
-  const getAgentConfig = (agentId?: string) => {
-    const configs = {
-      'router': {
-        name: 'Smart Router',
-        description: 'Intelligent routing to the right specialist',
-        icon: Sparkles,
-        color: 'bg-blue-500',
-        textColor: 'text-blue-600',
-      },
-      'digital-mentor': {
-        name: 'Digital Mentor',
-        description: 'Technology and digital skills expert',
-        icon: Computer,
-        color: 'bg-purple-500',
-        textColor: 'text-purple-600',
-      },
-      'finance-guide': {
-        name: 'Finance Guide',
-        description: 'Money management and financial literacy',
-        icon: DollarSign,
-        color: 'bg-green-500',
-        textColor: 'text-green-600',
-      },
-      'health-coach': {
-        name: 'Health Coach',
-        description: 'Health resources and NHS navigation',
-        icon: Heart,
-        color: 'bg-red-500',
-        textColor: 'text-red-600',
-      },
-    };
-    
-    return configs[agentId as keyof typeof configs] || configs.router;
+  // Handle message retry
+  const handleRetry = (messageId: string) => {
+    retryLastMessage();
   };
 
-  /**
-   * 🎯 NEW: Render onboarding welcome card
-   */
-  const renderOnboardingWelcome = () => {
-    if (!userContext?.needsOnboarding) return null;
-
-    const completedSteps = onboardingSteps.filter(step => step.completed).length;
-    const progressPercentage = (completedSteps / onboardingSteps.length) * 100;
-
-    return (
-      <Card className="bg-gradient-to-r from-blue-50 via-purple-50 to-pink-50 dark:from-blue-950/20 dark:via-purple-950/20 dark:to-pink-950/20 border-2 border-blue-200 dark:border-blue-800">
-        <CardContent className="p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Welcome to Smartlyte!
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {userContext.userName ? `Hi ${userContext.userName}! ` : ''}Let's get you started
-                </p>
-              </div>
-            </div>
-            
-            {showOnboardingSteps && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowOnboardingSteps(false)}
-                className="text-muted-foreground"
-              >
-                Hide Steps
-              </Button>
-            )}
-          </div>
-
-          {/* Progress Bar */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium">Setup Progress</span>
-              <span className="text-sm text-muted-foreground">
-                {completedSteps}/{onboardingSteps.length}
-              </span>
-            </div>
-            <Progress value={progressPercentage} className="h-2" />
-          </div>
-
-          {/* Onboarding Steps */}
-          {showOnboardingSteps && (
-            <div className="space-y-3 mb-4">
-              {onboardingSteps.map((step, index) => {
-                const IconComponent = step.icon;
-                return (
-                  <div
-                    key={step.id}
-                    className={cn(
-                      "flex items-center gap-3 p-3 rounded-lg border",
-                      step.completed 
-                        ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
-                        : "bg-gray-50 dark:bg-gray-950/20 border-gray-200 dark:border-gray-800"
-                    )}
-                  >
-                    <div className={cn(
-                      "p-1.5 rounded-full",
-                      step.completed 
-                        ? "bg-green-500" 
-                        : "bg-gray-400"
-                    )}>
-                      {step.completed ? (
-                        <CheckCircle className="w-4 h-4 text-white" />
-                      ) : (
-                        <IconComponent className="w-4 h-4 text-white" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">{step.title}</div>
-                      <div className="text-xs text-muted-foreground">{step.description}</div>
-                    </div>
-                    {index === completedSteps && !step.completed && (
-                      <Clock className="w-4 h-4 text-blue-500" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex gap-2">
-            {!showOnboardingSteps && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowOnboardingSteps(true)}
-                className="flex items-center gap-2"
-              >
-                <Clock className="w-4 h-4" />
-                Show Progress
-              </Button>
-            )}
-            
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => inputRef.current?.focus()}
-              className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
-            >
-              <ArrowRight className="w-4 h-4" />
-              Continue Setup
-            </Button>
-          </div>
-
-          {/* Welcome Message */}
-          <div className="mt-4 p-4 bg-white/50 dark:bg-gray-900/50 rounded-lg border">
-            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-              I'm your AI learning guide! I help people build digital skills, manage money better, 
-              and navigate health resources. Just start chatting and I'll guide you through setting 
-              up your personalized learning experience.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
-
-  /**
-   * 🎯 NEW: Render returning user welcome
-   */
-  const renderReturningUserWelcome = () => {
-    if (userContext?.needsOnboarding || messages.length > 0) return null;
-
-    return (
-      <Card className="bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-950/20 dark:to-blue-950/20">
-        <CardContent className="p-6 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="p-3 bg-gradient-to-r from-green-500 to-blue-500 rounded-full">
-              <Sparkles className="w-8 h-8 text-white" />
-            </div>
-          </div>
-          <h3 className="text-xl font-semibold mb-2">
-            Welcome back{userContext?.userName ? `, ${userContext.userName}` : ''}!
-          </h3>
-          <p className="text-muted-foreground mb-4">
-            Ready to continue your learning journey? I'm here to help with digital skills, 
-            money management, and health resources.
-          </p>
-          
-          {/* Quick Action Buttons */}
-          <div className="grid grid-cols-3 gap-2">
-            {['digital-mentor', 'finance-guide', 'health-coach'].map((agentId) => {
-              const config = getAgentConfig(agentId);
-              const IconComponent = config.icon;
-              return (
-                <Button
-                  key={agentId}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleAgentSelect(agentId)}
-                  className="flex flex-col items-center gap-1 h-auto py-3"
-                >
-                  <IconComponent className="w-5 h-5" />
-                  <span className="text-xs">{config.name}</span>
-                </Button>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
-
-  /**
-   * 🎯 NEW: Render onboarding completion celebration
-   */
-  const renderOnboardingCompletion = () => {
-    if (!userContext?.onboardingCompleted || userContext?.needsOnboarding) return null;
-
-    return (
-      <Card className="bg-gradient-to-r from-green-50 via-blue-50 to-purple-50 dark:from-green-950/20 dark:via-blue-950/20 dark:to-purple-950/20 border-2 border-green-200 dark:border-green-800">
-        <CardContent className="p-6 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="p-3 bg-gradient-to-r from-green-500 to-blue-500 rounded-full animate-pulse">
-              <Award className="w-8 h-8 text-white" />
-            </div>
-          </div>
-          <h3 className="text-xl font-bold text-green-600 dark:text-green-400 mb-2">
-            🎉 Setup Complete!
-          </h3>
-          <p className="text-muted-foreground mb-4">
-            {userContext.userName ? `Congratulations ${userContext.userName}! ` : 'Congratulations! '}
-            You're all set and ready to start learning. Your personalized AI guide is ready to help!
-          </p>
-          <Button
-            onClick={() => inputRef.current?.focus()}
-            className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
-          >
-            Start Learning!
-          </Button>
-        </CardContent>
-      </Card>
-    );
+  // Handle message feedback
+  const handleFeedback = (messageId: string, type: 'positive' | 'negative') => {
+    console.log(`Feedback for message ${messageId}:`, type);
+    // Here you could integrate with your feedback API
   };
 
   return (
-    <div className={cn("h-full w-full flex flex-col bg-background", className)}>
-      {/* Agent Selection */}
-      <div className="border-b p-4 bg-muted/20">
-        <div className="flex flex-wrap gap-2 mb-3">
-          {['router', 'digital-mentor', 'finance-guide', 'health-coach'].map((agentId) => {
-            const config = getAgentConfig(agentId);
-            const IconComponent = config.icon;
-            return (
-              <Button
-                key={agentId}
-                variant={selectedAgent === agentId ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleAgentSelect(agentId)}
-                className="flex items-center gap-2"
-              >
-                <IconComponent className="w-4 h-4" />
-                {config.name}
-              </Button>
-            );
-          })}
-        </div>
-        
-        {/* Agent Description */}
-        {selectedAgent && (
-          <div className="text-sm text-muted-foreground">
-            {selectedAgent === 'router' 
-              ? userContext?.needsOnboarding 
-                ? "I'll guide you through setting up your learning experience"
-                : "Smart routing will connect you with the right specialist"
-              : `Chat directly with: ${getAgentConfig(selectedAgent).description}`
-            }
-          </div>
-        )}
-      </div>
-
-      {/* Error Display */}
+    <div className={cn("flex flex-col h-full bg-background", className)}>
+      {/* Error Alert */}
       {error && (
-        <div className="p-4">
-          <Alert variant="destructive">
-            <AlertCircle className="w-4 h-4" />
-            <AlertDescription className="flex items-center justify-between">
+        <div className="p-4 border-b border-border">
+          <Alert className="border-red-500/50 bg-red-500/10">
+            <AlertCircle className="h-4 w-4 text-red-500" />
+            <AlertDescription className="text-red-700 dark:text-red-300 flex items-center justify-between">
               <span>{error}</span>
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={retryLastMessage}
-                  disabled={isStreaming}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-500/20 h-6 px-2"
                 >
                   <RefreshCw className="w-3 h-3 mr-1" />
                   Retry
                 </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={clearError}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-500/20 h-6 px-2"
                 >
                   Dismiss
                 </Button>
@@ -494,162 +261,114 @@ export function ChatWindow({
         </div>
       )}
 
-      {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Dynamic Welcome Based on User State */}
-        {showWelcome && messages.length === 0 && (
-          <div className="space-y-4">
-            {userContext?.needsOnboarding && renderOnboardingWelcome()}
-            {!userContext?.needsOnboarding && renderReturningUserWelcome()}
-            {userContext?.onboardingCompleted && renderOnboardingCompletion()}
-            
-            {/* Fallback Generic Welcome */}
-            {!userContext && (
-              <Card className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/20 dark:to-purple-950/20">
-                <CardContent className="p-6 text-center">
-                  <div className="flex justify-center mb-4">
-                    <div className="p-3 bg-primary/10 rounded-full">
-                      <Sparkles className="w-8 h-8 text-primary" />
-                    </div>
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">Welcome to Smartlyte AI!</h3>
-                  <p className="text-muted-foreground mb-4">
-                    I'm here to help you learn digital skills, manage finances, and navigate health resources.
-                    Just start chatting, and I'll connect you with the right specialist!
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        )}
+      {/* Messages Area */}
+      <ScrollArea className="flex-1 p-4">
+        <div className="space-y-4 max-w-4xl mx-auto">
+          {/* Welcome Message */}
+          {showWelcome && messages.length === 0 && (
+            <WelcomeMessage />
+          )}
 
-        {/* Message History */}
-        {messages.map((message) => {
-          const isUser = message.role === 'user';
-          return (
-            <div key={message.id} className={cn("flex gap-3", isUser ? "justify-end" : "justify-start")}>
-              {/* Assistant Avatar */}
-              {!isUser && (
-                <div className="flex-shrink-0 w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center text-white">
-                  <Bot className="w-4 h-4" />
-                </div>
-              )}
-
-              {/* Message Content */}
-              <div className={cn("max-w-[80%] space-y-2")}>
-                <div className={cn(
-                  "rounded-lg px-4 py-2",
-                  isUser 
-                    ? "bg-primary text-primary-foreground ml-auto" 
-                    : "bg-muted"
-                )}>
-                  <div className="text-sm leading-relaxed">
-                    {message.content}
-                  </div>
-                </div>
-
-                {/* Message Metadata */}
-                <div className={cn(
-                  "flex items-center gap-2 text-xs",
-                  isUser ? "justify-end" : "justify-start"
-                )}>
-                  <div className={cn(
-                    isUser 
-                      ? "text-primary-foreground/70" 
-                      : "text-muted-foreground"
-                  )}>
-                    {message.createdAt.toLocaleTimeString([], { 
-                      hour: '2-digit', 
-                      minute: '2-digit' 
-                    })}
-                  </div>
-                </div>
+          {/* Empty State (when no welcome) */}
+          {!showWelcome && messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center min-h-[300px] text-center space-y-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                <MessageSquare className="w-6 h-6 text-white" />
               </div>
-
-              {/* User Avatar */}
-              {isUser && (
-                <div className="flex-shrink-0 w-8 h-8 bg-primary rounded-full flex items-center justify-center text-primary-foreground text-sm font-medium">
-                  <User className="w-4 h-4" />
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Typing Indicator */}
-        {isStreaming && (
-          <div className="flex gap-3 justify-start">
-            <div className="flex-shrink-0 w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center text-white">
-              <Bot className="w-4 h-4" />
-            </div>
-            <div className="bg-muted rounded-lg px-4 py-2">
-              <div className="flex gap-1">
-                <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-pulse" />
-                <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-pulse delay-75" />
-                <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-pulse delay-150" />
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-2">
+                  Start a Conversation
+                </h3>
+                <p className="text-slate-600 dark:text-slate-400 text-sm">
+                  Ask me anything about digital skills, finance, or health
+                </p>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Scroll Anchor */}
-        <div ref={messagesEndRef} />
-      </div>
+          {/* Messages */}
+          {messages
+            .filter(message => message.role !== 'system') // Filter out system messages
+            .map((message, index) => (
+            <MessageItem
+              key={message.id}
+              message={{
+                ...message,
+                role: message.role as 'user' | 'assistant' // Type assertion for filtered messages
+              }}
+              isLast={index === messages.length - 1}
+              onCopy={handleCopy}
+              onRetry={handleRetry}
+              onFeedback={handleFeedback}
+              showActions={true}
+              showTimestamp={true}
+              compact={false}
+            />
+          ))}
+
+          {/* Typing Indicator */}
+          {isStreaming && (
+            <TypingIndicator 
+              agentName="router"
+              className="animate-fade-in"
+            />
+          )}
+
+          {/* Scroll Anchor */}
+          <div ref={messagesEndRef} />
+        </div>
+      </ScrollArea>
 
       {/* Input Form */}
-      <div className="border-t p-4 bg-background">
-        <form onSubmit={handleSubmit} className="flex gap-2">
-          <div className="relative flex-1">
-            <Input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={
-                userContext?.needsOnboarding
-                  ? "Tell me what you'd like to learn about..."
-                  : selectedAgent === 'router'
-                  ? "Ask about digital skills, money management, or health resources..."
-                  : `Ask ${getAgentConfig(selectedAgent).name} anything...`
-              }
-              disabled={isStreaming}
-              className="pr-16"
-              maxLength={4000}
-            />
-            
-            {/* Character Count */}
-            {input.length > 3500 && (
-              <div className="absolute right-16 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                {input.length}/4000
+      <div className="border-t border-border p-4 bg-background/50 backdrop-blur-sm">
+        <div className="max-w-4xl mx-auto">
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            <div className="relative flex-1">
+              <Input
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask me anything about digital skills, finance, or health..."
+                disabled={isLoading}
+                className="pr-12 bg-background border-border focus:border-primary"
+              />
+              
+              {/* Input Actions */}
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                {input.trim() && (
+                  <Badge variant="outline" className="text-xs">
+                    {input.trim().split(' ').length} words
+                  </Badge>
+                )}
               </div>
-            )}
-          </div>
-          
-          {/* Send/Stop Button */}
-          {isStreaming ? (
-            <Button 
-              type="button" 
-              onClick={stopStreaming}
-              variant="outline"
-              size="icon"
-              className="flex-shrink-0"
-            >
-              <Square className="w-4 h-4" />
-            </Button>
-          ) : (
+            </div>
+            
             <Button 
               type="submit" 
               disabled={!input.trim() || isLoading}
-              size="icon"
-              className="flex-shrink-0"
+              className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
             >
               {isLoading ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Send className="w-4 h-4" />
               )}
             </Button>
-          )}
-        </form>
+          </form>
+          
+          {/* Input Help */}
+          <div className="flex items-center justify-between mt-2 text-xs text-slate-500">
+            <span>
+              💡 Try: "How do I set up Gmail?" or "Help me create a budget"
+            </span>
+            <div className="flex items-center gap-2">
+              <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-xs">
+                Enter
+              </kbd>
+              <span>to send</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -7,6 +7,8 @@ import { useChat } from '@/hooks/use-chat';
 import { ChatSidebar } from '@/components/chat/chat-sidebar';
 import { ChatWindow } from '@/components/chat/chat-window';
 import { SettingsDialog } from '@/components/settings/settings-dialog';
+import { ProfileDropdown } from '@/components/profile/profile-dropdown';
+import { ProfileEditDialog } from '@/components/profile/profile-edit-dialog';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
@@ -46,8 +48,9 @@ export default function ChatPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   
-  // ✅ NEW: Settings dialog state
+  // Dialog states
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileEditOpen, setProfileEditOpen] = useState(false);
 
   // Handle responsive behavior
   useEffect(() => {
@@ -76,6 +79,13 @@ export default function ChatPage() {
     if (isMobile) {
       setSidebarOpen(false);
     }
+  };
+
+  /**
+   * Handle profile edit action from dropdown
+   */
+  const handleEditProfile = () => {
+    setProfileEditOpen(true);
   };
 
   // Show loading while user data loads
@@ -146,18 +156,23 @@ export default function ChatPage() {
                   className="mr-2 text-white hover:bg-slate-800"
                   title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 >
-                  <Sidebar className="w-4 h-4" />
+                  <Sidebar className="w-5 h-5" />
                 </Button>
               )}
 
-              {/* Title */}
-              <div className="flex items-center gap-3">
+              {/* Header Title */}
+              <div className="flex items-center gap-2">
                 <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                  <Brain className="w-4 h-4 text-white" />
+                  <Sparkles className="w-4 h-4 text-white" />
                 </div>
-                <h1 className="text-lg font-semibold text-white">
-                  Smartlyte AI
-                </h1>
+                <div>
+                  <h1 className="text-white font-semibold text-lg">Smartlyte AI</h1>
+                  {currentChatId && (
+                    <p className="text-slate-400 text-xs -mt-1">
+                      Learning conversation
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -168,59 +183,81 @@ export default function ChatPage() {
                 variant="ghost"
                 size="sm"
                 onClick={handleNewChat}
-                className="text-white hover:bg-slate-800"
+                className="text-white hover:bg-slate-800 hidden sm:flex"
                 title="Start new conversation"
               >
-                <Plus className="w-4 h-4" />
-                {!isMobile && <span className="ml-2">New Chat</span>}
+                <Plus className="w-4 h-4 mr-2" />
+                New Chat
               </Button>
 
-              {/* ✅ NEW: Settings Button */}
+              {/* Mobile New Chat */}
+              {isMobile && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleNewChat}
+                  className="text-white hover:bg-slate-800"
+                  title="Start new conversation"
+                >
+                  <Plus className="w-5 h-5" />
+                </Button>
+              )}
+
+              {/* Settings Button */}
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setSettingsOpen(true)}
                 className="text-white hover:bg-slate-800"
-                title="Open settings"
+                title="Settings"
               >
-                <Settings className="w-4 h-4" />
+                <Settings className="w-5 h-5" />
               </Button>
 
-              {/* Help Button */}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-white hover:bg-slate-800"
-                title="Help & Support"
-              >
-                <HelpCircle className="w-4 h-4" />
-              </Button>
+              {/* Profile Dropdown */}
+              <ProfileDropdown 
+                onEditProfile={handleEditProfile}
+                className="ml-1"
+              />
             </div>
           </div>
         </header>
 
-        {/* Error Alert */}
+        {/* Error Display */}
         {error && (
-          <Alert className="m-4 border-red-500/50 bg-red-500/10">
-            <AlertCircle className="h-4 w-4 text-red-500" />
-            <AlertDescription className="text-red-200">
-              {error}
-              <Button
-                variant="link"
-                size="sm"
-                onClick={clearError}
-                className="ml-2 text-red-300 hover:text-red-100 p-0 h-auto"
-              >
-                Dismiss
-              </Button>
-            </AlertDescription>
-          </Alert>
+          <div className="p-4 border-b border-slate-800/50">
+            <Alert className="border-red-500/50 bg-red-500/10">
+              <AlertCircle className="h-4 w-4 text-red-500" />
+              <AlertDescription className="text-red-200 flex items-center justify-between">
+                <span>{error}</span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => window.location.reload()}
+                    className="text-red-300 hover:text-red-200 hover:bg-red-500/20"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-1" />
+                    Retry
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearError}
+                    className="text-red-300 hover:text-red-200 hover:bg-red-500/20"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </AlertDescription>
+            </Alert>
+          </div>
         )}
 
-        {/* Chat Window */}
+        {/* Chat Content */}
         <div className={cn(
           "flex-1 min-h-0",
-          isMobile && sidebarOpen ? "h-[calc(100vh-160px)]" : "h-[calc(100vh-64px)]"
+          error ? "h-[calc(100vh-160px)]" : "h-[calc(100vh-64px)]"
         )}>
           <ChatWindow 
             className="h-full w-full"
@@ -245,10 +282,16 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* ✅ NEW: Settings Dialog */}
+      {/* Settings Dialog */}
       <SettingsDialog 
         open={settingsOpen} 
         onOpenChange={setSettingsOpen} 
+      />
+
+      {/* Profile Edit Dialog */}
+      <ProfileEditDialog 
+        open={profileEditOpen} 
+        onOpenChange={setProfileEditOpen} 
       />
     </div>
   );

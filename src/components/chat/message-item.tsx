@@ -1,7 +1,7 @@
 // src/components/chat/message-item.tsx
 'use client';
 
-import React, { useState, memo } from 'react';
+import React, { useState, memo, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,16 +21,31 @@ import {
   ThumbsDown, 
   RefreshCw,
   Clock,
-  Bot,
-  Computer,
-  DollarSign,
-  Heart,
-  Sparkles
+  Check,
+  AlertTriangle,
+  Info,
+  Lightbulb,
+  CheckCircle,
+  Code,
+  ArrowRight,
+  ChevronRight,
+  ExternalLink,
+  Mail,
+  Phone,
+  Hash,
+  Zap,
+  Sparkles,
+  MessageCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUser } from '@clerk/nextjs';
+import { getAgentTheme, type AgentTheme } from '@/lib/formatting/agent-themes';
+import { parseContent, needsEnhancedFormatting, type ContentBlock, type ParsedResponse } from '@/lib/formatting/content-parser';
 
-// Message interface
+// ==========================================
+// INTERFACES
+// ==========================================
+
 interface Message {
   id: string;
   content: string;
@@ -58,70 +73,267 @@ interface MessageItemProps {
   compact?: boolean;
 }
 
-/**
- * Agent configuration for visual styling and information
- */
-const AGENT_CONFIG = {
-  'router': {
-    name: 'Smart Router',
-    emoji: '🤖',
-    icon: Bot,
-    color: 'bg-blue-500',
-    textColor: 'text-blue-600',
-    bgColor: 'bg-blue-50 dark:bg-blue-950/20',
-    borderColor: 'border-blue-200 dark:border-blue-800',
-  },
-  'digital-mentor': {
-    name: 'Digital Mentor',
-    emoji: '🖥️',
-    icon: Computer,
-    color: 'bg-purple-500',
-    textColor: 'text-purple-600',
-    bgColor: 'bg-purple-50 dark:bg-purple-950/20',
-    borderColor: 'border-purple-200 dark:border-purple-800',
-  },
-  'finance-guide': {
-    name: 'Finance Guide',
-    emoji: '💰',
-    icon: DollarSign,
-    color: 'bg-green-500',
-    textColor: 'text-green-600',
-    bgColor: 'bg-green-50 dark:bg-green-950/20',
-    borderColor: 'border-green-200 dark:border-green-800',
-  },
-  'health-coach': {
-    name: 'Health Coach',
-    emoji: '🏥',
-    icon: Heart,
-    color: 'bg-red-500',
-    textColor: 'text-red-600',
-    bgColor: 'bg-red-50 dark:bg-red-950/20',
-    borderColor: 'border-red-200 dark:border-red-800',
-  },
-} as const;
+// ==========================================
+// CONTENT BLOCK COMPONENTS
+// ==========================================
 
 /**
- * Get agent configuration based on agent name
+ * Step Guide Component - Renders numbered steps with visual progression
  */
-function getAgentConfig(agentName?: string) {
-  if (!agentName) return AGENT_CONFIG.router;
+function StepGuide({ block, theme }: { block: ContentBlock; theme: AgentTheme }) {
+  const steps = (block.metadata?.steps || []) as Array<{number: number; content: string}>;
   
-  // Map agent names to config keys
-  const nameMapping = {
-    'Smart Router': 'router',
-    'Intelligent Router': 'router',
-    'Simple Router': 'router',
-    'Digital Mentor': 'digital-mentor',
-    'Finance Guide': 'finance-guide',
-    'Health Coach': 'health-coach',
-  } as const;
-  
-  const configKey = nameMapping[agentName as keyof typeof nameMapping] || 'router';
-  return AGENT_CONFIG[configKey];
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 mb-3">
+        <div className={cn("w-5 h-5 rounded-full flex items-center justify-center", theme.avatar.background)}>
+          <Hash className="w-3 h-3 text-white" />
+        </div>
+        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+          Step-by-Step Guide
+        </span>
+      </div>
+      
+      <div className="space-y-2">
+        {steps.map((step: {number: number; content: string}, index: number) => (
+          <div 
+            key={index}
+            className={cn(
+              "flex gap-3 p-3 rounded-lg border transition-all duration-200",
+              theme.content.steps.background,
+              theme.content.steps.border,
+              "hover:shadow-sm"
+            )}
+          >
+            <div className={cn(
+              "w-6 h-6 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0",
+              theme.content.steps.number
+            )}>
+              {step.number}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={cn("text-sm leading-relaxed", theme.content.steps.completed.split(' ')[2])}>
+                {step.content}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /**
- * Enhanced message item component with agent indicators and actions
+ * Bullet List Component - Renders bullet points with consistent styling
+ */
+function BulletList({ block, theme }: { block: ContentBlock; theme: AgentTheme }) {
+  const items = (block.metadata?.items || []) as string[];
+  
+  return (
+    <div className="space-y-2">
+      {items.map((item: string, index: number) => (
+        <div key={index} className="flex gap-3 items-start">
+          <div className={cn(
+            "w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0",
+            theme.colors.primary.replace('#', 'bg-[') + ']'
+          )} />
+          <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300 flex-1">
+            {item}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Callout Component - Renders tips, warnings, and important notes
+ */
+function CalloutBlock({ block, theme }: { block: ContentBlock; theme: AgentTheme }) {
+  const getCalloutConfig = (type: string) => {
+    switch (type) {
+      case 'tip':
+        return {
+          icon: Lightbulb,
+          label: 'Tip',
+          styling: theme.content.callouts.tip,
+          iconColor: 'text-blue-600 dark:text-blue-400',
+        };
+      case 'warning':
+        return {
+          icon: AlertTriangle,
+          label: 'Warning',
+          styling: theme.content.callouts.warning,
+          iconColor: 'text-amber-600 dark:text-amber-400',
+        };
+      case 'important':
+        return {
+          icon: Info,
+          label: 'Important',
+          styling: theme.content.callouts.info,
+          iconColor: 'text-red-600 dark:text-red-400',
+        };
+      case 'success':
+        return {
+          icon: CheckCircle,
+          label: 'Success',
+          styling: theme.content.callouts.success,
+          iconColor: 'text-green-600 dark:text-green-400',
+        };
+      default:
+        return {
+          icon: Info,
+          label: 'Note',
+          styling: theme.content.callouts.info,
+          iconColor: 'text-slate-600 dark:text-slate-400',
+        };
+    }
+  };
+  
+  const config = getCalloutConfig(block.type);
+  const IconComponent = config.icon;
+  
+  return (
+    <div className={cn(
+      "flex gap-3 p-4 rounded-lg border",
+      config.styling
+    )}>
+      <div className="flex-shrink-0">
+        <IconComponent className={cn("w-5 h-5", config.iconColor)} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-sm font-semibold">{config.label}</span>
+        </div>
+        <p className="text-sm leading-relaxed">
+          {block.content}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Code Block Component - Renders code with syntax highlighting
+ */
+function CodeBlock({ block, theme }: { block: ContentBlock; theme: AgentTheme }) {
+  const [copied, setCopied] = useState(false);
+  const language = block.metadata?.language || 'text';
+  
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(block.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error('Failed to copy code:', error);
+    }
+  };
+  
+  return (
+    <div className={cn(
+      "relative rounded-lg border overflow-hidden",
+      theme.content.code.background,
+      theme.content.code.border
+    )}>
+      {/* Code header */}
+      <div className="flex items-center justify-between px-4 py-2 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-2">
+          <Code className="w-4 h-4 text-slate-500" />
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+            {language.toUpperCase()}
+          </span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleCopy}
+          className="h-6 px-2 text-xs"
+        >
+          {copied ? (
+            <>
+              <Check className="w-3 h-3 mr-1" />
+              Copied
+            </>
+          ) : (
+            <>
+              <Copy className="w-3 h-3 mr-1" />
+              Copy
+            </>
+          )}
+        </Button>
+      </div>
+      
+      {/* Code content */}
+      <div className="p-4">
+        <pre className={cn(
+          "text-sm leading-relaxed overflow-x-auto",
+          theme.content.code.text
+        )}>
+          <code>{block.content}</code>
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Agent Handoff Component - Shows agent transitions
+ */
+function AgentHandoff({ transition, fromTheme, toTheme }: { 
+  transition: NonNullable<ParsedResponse['agentTransition']>; 
+  fromTheme: AgentTheme;
+  toTheme: AgentTheme;
+}) {
+  return (
+    <div className="flex items-center justify-center py-4">
+      <div className="flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-slate-100 to-slate-50 dark:from-slate-800 dark:to-slate-700 rounded-full border border-slate-200 dark:border-slate-600">
+        {/* From agent */}
+        <div className="flex items-center gap-2">
+          <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-xs", fromTheme.avatar.background)}>
+            {fromTheme.emoji}
+          </div>
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+            {fromTheme.displayName}
+          </span>
+        </div>
+        
+        {/* Arrow */}
+        <ArrowRight className="w-4 h-4 text-slate-400" />
+        
+        {/* To agent */}
+        <div className="flex items-center gap-2">
+          <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-xs", toTheme.avatar.background)}>
+            {toTheme.emoji}
+          </div>
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+            {toTheme.displayName}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Text Block Component - Renders regular text with inline formatting
+ */
+function TextBlock({ content, theme }: { content: string; theme: AgentTheme }) {
+  return (
+    <div className="prose prose-sm max-w-none dark:prose-invert">
+      <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+        {content}
+      </p>
+    </div>
+  );
+}
+
+// ==========================================
+// MAIN MESSAGE COMPONENT
+// ==========================================
+
+/**
+ * Enhanced message item component with rich formatting and agent theming
  */
 export const MessageItem = memo(function MessageItem({
   message,
@@ -140,8 +352,16 @@ export const MessageItem = memo(function MessageItem({
   const [feedback, setFeedback] = useState<'positive' | 'negative' | null>(null);
 
   const isUser = message.role === 'user';
-  const agentConfig = isUser ? null : getAgentConfig(message.agentName);
-  const IconComponent = agentConfig?.icon || Bot;
+  const theme = getAgentTheme(isUser ? null : message.agentName);
+  const IconComponent = theme.icon;
+
+  // Parse content for enhanced formatting
+  const parsedContent = useMemo(() => {
+    if (isUser || !needsEnhancedFormatting(message.content)) {
+      return null;
+    }
+    return parseContent(message.content);
+  }, [message.content, isUser]);
 
   // Handle copy to clipboard
   const handleCopy = async () => {
@@ -189,7 +409,7 @@ export const MessageItem = memo(function MessageItem({
       className={cn(
         "flex gap-3 group relative",
         isUser ? "justify-end" : "justify-start",
-        compact ? "mb-2" : "mb-4",
+        compact ? "mb-2" : "mb-6",
         className
       )}
     >
@@ -197,82 +417,108 @@ export const MessageItem = memo(function MessageItem({
       {!isUser && (
         <Avatar className={cn(
           "flex-shrink-0 transition-all duration-200",
-          compact ? "w-6 h-6" : "w-8 h-8",
-          agentConfig && "ring-2 ring-offset-1",
-          agentConfig?.borderColor
+          theme.avatar.size.default,
+          theme.avatar.shadow,
+          theme.avatar.border
         )}>
+          <AvatarImage src="" alt={theme.displayName} />
           <AvatarFallback className={cn(
-            "text-white font-medium",
-            agentConfig?.color || "bg-gray-500",
-            compact ? "text-xs" : "text-sm"
+            "text-white font-medium text-sm",
+            theme.avatar.background
           )}>
-            {agentConfig?.emoji || '🤖'}
+            {theme.emoji}
+          </AvatarFallback>
+        </Avatar>
+      )}
+
+      {/* User Avatar */}
+      {isUser && (
+        <Avatar className="w-8 h-8 flex-shrink-0">
+          <AvatarImage src={user?.imageUrl} alt="You" />
+          <AvatarFallback className="bg-slate-500 text-white text-sm">
+            <User className="w-4 h-4" />
           </AvatarFallback>
         </Avatar>
       )}
 
       {/* Message Content */}
-      <div className={cn(
-        "flex flex-col",
-        compact ? "max-w-[85%]" : "max-w-[80%]",
-        isUser ? "items-end" : "items-start"
-      )}>
-        {/* Agent Name Badge (for assistant messages) */}
-        {!isUser && message.agentName && !compact && (
-          <div className="flex items-center gap-2 mb-1">
-            <Badge 
-              variant="secondary" 
-              className={cn(
-                "text-xs font-medium flex items-center gap-1",
-                agentConfig?.textColor,
-                agentConfig?.bgColor
-              )}
-            >
-              <IconComponent className="w-3 h-3" />
-              {agentConfig?.name || message.agentName}
+      <div className="flex-1 min-w-0 max-w-[85%]">
+        {/* Agent Header (for assistant messages) */}
+        {!isUser && (
+          <div className="flex items-center gap-2 mb-2">
+            <span className={cn("text-sm font-semibold", theme.message.metaColor)}>
+              {theme.displayName}
+            </span>
+            <Badge variant="secondary" className={cn(
+              "text-xs px-2 py-0.5",
+              theme.interactions.buttons.secondary
+            )}>
+              {theme.personality.tone}
             </Badge>
-            
-            {/* Confidence indicator */}
-            {message.metadata?.confidence && message.metadata.confidence > 0.8 && (
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Sparkles className="w-3 h-3" />
-                <span>High confidence</span>
-              </div>
-            )}
           </div>
         )}
 
-        {/* Message Bubble */}
-        <Card
-          className={cn(
-            "transition-all duration-200 shadow-sm",
-            isUser 
-              ? "bg-primary text-primary-foreground border-primary/20" 
-              : cn(
-                  "bg-muted/50 hover:bg-muted/70 border-border/50",
-                  agentConfig?.bgColor,
-                  agentConfig?.borderColor
-                ),
-            "group-hover:shadow-md",
-            compact ? "max-w-full" : "max-w-full"
-          )}
-        >
-          <CardContent className={cn(
-            "p-3",
-            compact && "p-2"
-          )}>
-            {/* Message Text */}
-            <div className={cn(
-              "text-sm leading-relaxed whitespace-pre-wrap break-words",
-              compact && "text-xs leading-normal"
-            )}>
-              {message.content}
-            </div>
+        {/* Message Card */}
+        <Card className={cn(
+          "border transition-all duration-200",
+          isUser 
+            ? "bg-primary text-primary-foreground border-primary/20" 
+            : cn(
+                theme.message.background,
+                theme.message.border,
+                theme.message.shadow,
+                theme.message.hoverShadow
+              ),
+          "group-hover:shadow-md"
+        )}>
+          <CardContent className={cn("p-4", compact && "p-3")}>
+            {/* Agent Handoff */}
+            {parsedContent?.hasAgentHandoff && parsedContent.agentTransition && (
+              <AgentHandoff 
+                transition={parsedContent.agentTransition}
+                fromTheme={getAgentTheme(parsedContent.agentTransition.fromAgent)}
+                toTheme={getAgentTheme(parsedContent.agentTransition.toAgent)}
+              />
+            )}
+
+            {/* Enhanced Content Blocks */}
+            {parsedContent && !isUser ? (
+              <div className="space-y-4">
+                {parsedContent.blocks.map((block, index) => {
+                  switch (block.type) {
+                    case 'step-guide':
+                      return <StepGuide key={block.id} block={block} theme={theme} />;
+                    case 'bullet-list':
+                      return <BulletList key={block.id} block={block} theme={theme} />;
+                    case 'tip':
+                    case 'warning':
+                    case 'important':
+                    case 'success':
+                      return <CalloutBlock key={block.id} block={block} theme={theme} />;
+                    case 'code':
+                      return <CodeBlock key={block.id} block={block} theme={theme} />;
+                    case 'text':
+                      return <TextBlock key={block.id} content={block.content} theme={theme} />;
+                    default:
+                      return <TextBlock key={block.id} content={block.content} theme={theme} />;
+                  }
+                })}
+              </div>
+            ) : (
+              /* Simple Text Content */
+              <div className={cn(
+                "text-sm leading-relaxed whitespace-pre-wrap break-words",
+                compact && "text-xs leading-normal",
+                isUser ? "text-white" : theme.message.textColor
+              )}>
+                {message.content}
+              </div>
+            )}
 
             {/* Message Metadata */}
             <div className={cn(
-              "flex items-center justify-between mt-2 gap-2",
-              compact && "mt-1"
+              "flex items-center justify-between mt-3 gap-2",
+              compact && "mt-2"
             )}>
               <div className="flex items-center gap-2 text-xs opacity-70">
                 {/* Timestamp */}
@@ -293,19 +539,15 @@ export const MessageItem = memo(function MessageItem({
                   <span>{message.metadata.responseTime}ms</span>
                 )}
 
-                {/* Streaming Indicator */}
-                {message.metadata?.isStreaming && (
-                  <Badge variant="outline" className="text-xs">
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1" />
-                    Live
-                  </Badge>
+                {/* Content Stats */}
+                {parsedContent && (
+                  <span>{parsedContent.blocks.length} blocks</span>
                 )}
               </div>
 
-              {/* Message Actions */}
-              {showActions && !compact && (
+              {/* Actions */}
+              {showActions && (
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {/* Copy Button */}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -313,13 +555,13 @@ export const MessageItem = memo(function MessageItem({
                     className="h-6 w-6 p-0"
                     title="Copy message"
                   >
-                    <Copy className={cn(
-                      "w-3 h-3",
-                      copied && "text-green-500"
-                    )} />
+                    {copied ? (
+                      <Check className="w-3 h-3" />
+                    ) : (
+                      <Copy className="w-3 h-3" />
+                    )}
                   </Button>
 
-                  {/* Feedback and More Actions */}
                   {!isUser && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -327,34 +569,23 @@ export const MessageItem = memo(function MessageItem({
                           variant="ghost"
                           size="sm"
                           className="h-6 w-6 p-0"
-                          title="More actions"
                         >
                           <MoreVertical className="w-3 h-3" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48">
                         <DropdownMenuItem onClick={() => handleFeedback('positive')}>
-                          <ThumbsUp className={cn(
-                            "w-4 h-4 mr-2",
-                            feedback === 'positive' && "text-green-500"
-                          )} />
-                          Helpful Response
+                          <ThumbsUp className="w-4 h-4 mr-2" />
+                          Helpful response
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleFeedback('negative')}>
-                          <ThumbsDown className={cn(
-                            "w-4 h-4 mr-2",
-                            feedback === 'negative' && "text-red-500"
-                          )} />
-                          Not Helpful
+                          <ThumbsDown className="w-4 h-4 mr-2" />
+                          Not helpful
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={handleRetry}>
                           <RefreshCw className="w-4 h-4 mr-2" />
-                          Regenerate Response
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={handleCopy}>
-                          <Copy className="w-4 h-4 mr-2" />
-                          Copy Message
+                          Regenerate response
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -364,49 +595,7 @@ export const MessageItem = memo(function MessageItem({
             </div>
           </CardContent>
         </Card>
-
-        {/* Feedback Display */}
-        {feedback && !compact && (
-          <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-            {feedback === 'positive' ? (
-              <>
-                <ThumbsUp className="w-3 h-3 text-green-500" />
-                <span>Marked as helpful</span>
-              </>
-            ) : (
-              <>
-                <ThumbsDown className="w-3 h-3 text-red-500" />
-                <span>Feedback sent</span>
-              </>
-            )}
-          </div>
-        )}
       </div>
-
-      {/* User Avatar */}
-      {isUser && (
-        <Avatar className={cn(
-          "flex-shrink-0",
-          compact ? "w-6 h-6" : "w-8 h-8"
-        )}>
-          {user?.imageUrl ? (
-            <AvatarImage src={user.imageUrl} alt={user.firstName || 'User'} />
-          ) : (
-            <AvatarFallback className="bg-primary text-primary-foreground">
-              <User className={cn(
-                compact ? "w-3 h-3" : "w-4 h-4"
-              )} />
-            </AvatarFallback>
-          )}
-        </Avatar>
-      )}
-
-      {/* Copy Success Toast */}
-      {copied && (
-        <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-8 bg-black text-white text-xs px-2 py-1 rounded shadow-lg z-10">
-          Copied!
-        </div>
-      )}
     </div>
   );
 });
@@ -414,48 +603,53 @@ export const MessageItem = memo(function MessageItem({
 MessageItem.displayName = 'MessageItem';
 
 /**
- * Typing indicator component for when AI is responding
+ * Enhanced typing indicator with agent theming
  */
 export const TypingIndicator = memo(function TypingIndicator({
-  agentName = 'AI',
+  agentName = 'router',
   className,
 }: {
   agentName?: string;
   className?: string;
 }) {
-  const agentConfig = getAgentConfig(agentName);
-  const IconComponent = agentConfig?.icon || Bot;
+  const theme = getAgentTheme(agentName);
 
   return (
-    <div className={cn("flex gap-3 justify-start", className)}>
-      <Avatar className="w-8 h-8 flex-shrink-0">
+    <div className={cn("flex gap-3 justify-start mb-4", className)}>
+      <Avatar className={cn(
+        "flex-shrink-0",
+        theme.avatar.size.default,
+        theme.avatar.shadow,
+        theme.avatar.border
+      )}>
         <AvatarFallback className={cn(
-          "text-white font-medium",
-          agentConfig?.color || "bg-gray-500"
+          "text-white font-medium text-sm",
+          theme.avatar.background
         )}>
-          {agentConfig?.emoji || '🤖'}
+          {theme.emoji}
         </AvatarFallback>
       </Avatar>
 
       <Card className={cn(
-        "bg-muted/50 border-border/50",
-        agentConfig?.bgColor
+        "border",
+        theme.message.background,
+        theme.message.border
       )}>
-        <CardContent className="p-3">
+        <CardContent className="p-4">
           <div className="flex items-center gap-3">
             <div className="flex space-x-1">
-              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+              <div className={cn("w-2 h-2 rounded-full animate-bounce", theme.interactions.indicators.typing.replace('text-', 'bg-'))}></div>
               <div 
-                className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" 
+                className={cn("w-2 h-2 rounded-full animate-bounce", theme.interactions.indicators.typing.replace('text-', 'bg-'))}
                 style={{ animationDelay: '0.1s' }}
               ></div>
               <div 
-                className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" 
+                className={cn("w-2 h-2 rounded-full animate-bounce", theme.interactions.indicators.typing.replace('text-', 'bg-'))}
                 style={{ animationDelay: '0.2s' }}
               ></div>
             </div>
             <span className="text-sm text-muted-foreground">
-              {agentConfig?.name || agentName} is typing...
+              {theme.displayName} is thinking...
             </span>
           </div>
         </CardContent>
