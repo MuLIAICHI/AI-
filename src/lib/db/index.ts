@@ -7,7 +7,7 @@ import * as schema from './schema';
 
 // ✅ REMOVED: dotenv import (not compatible with edge runtime)
 // ✅ FIXED: Environment variables are available directly in edge runtime
-const connectionString = process.env.DATABASE_URL;
+const connectionString = 'postgresql://neondb_owner:npg_E8fYznyX7ktK@ep-white-heart-ab9rsvez-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require';
 
 if (!connectionString) {
   throw new Error(

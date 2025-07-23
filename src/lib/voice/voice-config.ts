@@ -174,26 +174,36 @@ export function createDefaultVoiceConfig(
 ): VoiceConfig {
   const recommendedVoice = getRecommendedVoice(language);
   
-  return {
+  // 🔧 FIX: Create complete config object with proper defaults
+  const config: VoiceConfig = {
     ...DEFAULT_VOICE_CONFIG,
     language,
     voiceId: recommendedVoice,
-    ...preferences && {
-      enabled: preferences.voiceEnabled ?? DEFAULT_VOICE_CONFIG.enabled,
-      provider: preferences.voiceProvider ?? DEFAULT_VOICE_CONFIG.provider,
-      voiceId: preferences.preferredVoice ?? recommendedVoice,
-      language: preferences.voiceLanguage ?? language,
-      speed: preferences.voiceSpeed ?? DEFAULT_VOICE_CONFIG.speed,
-      quality: preferences.voiceQuality ?? DEFAULT_VOICE_CONFIG.quality,
-      latencyMode: preferences.voiceLatencyMode ?? DEFAULT_VOICE_CONFIG.latencyMode,
-      autoplay: preferences.voiceAutoplay ?? DEFAULT_VOICE_CONFIG.autoplay,
-      inputEnabled: preferences.voiceInputEnabled ?? DEFAULT_VOICE_CONFIG.inputEnabled,
-      outputEnabled: preferences.voiceOutputEnabled ?? DEFAULT_VOICE_CONFIG.outputEnabled,
-      interruptionsEnabled: preferences.voiceInterruptionsEnabled ?? DEFAULT_VOICE_CONFIG.interruptionsEnabled,
-      visualizationEnabled: preferences.voiceVisualizationEnabled ?? DEFAULT_VOICE_CONFIG.visualizationEnabled,
-    },
   };
+
+  // 🔧 FIX: Only apply preferences if they exist, with explicit default fallbacks
+  if (preferences) {
+    return {
+      ...config,
+      // Each property gets explicit fallback to avoid undefined values
+      enabled: preferences.voiceEnabled ?? config.enabled,
+      provider: preferences.voiceProvider ?? config.provider,
+      voiceId: preferences.preferredVoice ?? config.voiceId,
+      language: preferences.voiceLanguage ?? config.language,
+      speed: preferences.voiceSpeed ?? config.speed,
+      quality: preferences.voiceQuality ?? config.quality,
+      latencyMode: preferences.voiceLatencyMode ?? config.latencyMode,
+      autoplay: preferences.voiceAutoplay ?? config.autoplay,
+      inputEnabled: preferences.voiceInputEnabled ?? config.inputEnabled,
+      outputEnabled: preferences.voiceOutputEnabled ?? config.outputEnabled,
+      interruptionsEnabled: preferences.voiceInterruptionsEnabled ?? config.interruptionsEnabled,
+      visualizationEnabled: preferences.voiceVisualizationEnabled ?? config.visualizationEnabled,
+    };
+  }
+
+  return config;
 }
+
 
 /**
  * Create voice configuration for specific agent
@@ -212,12 +222,38 @@ export function createAgentVoiceConfig(
     ? getRecommendedVoice(language) 
     : agentMapping.defaultVoice;
 
-  return {
+  // 🔧 FIX: Create new config with explicit type safety
+  const agentConfig: VoiceConfig = {
     ...baseConfig,
     voiceId,
-    // Agent-specific overrides from base config
-    ...(baseConfig.agentOverrides?.[agentId] || {}),
   };
+
+  // 🔧 FIX: Handle agent overrides safely
+  const agentOverrides = baseConfig.agentOverrides?.[agentId];
+  if (agentOverrides) {
+    // Apply each override property explicitly to maintain type safety
+    return {
+      ...agentConfig,
+      enabled: agentOverrides.enabled ?? agentConfig.enabled,
+      provider: agentOverrides.provider ?? agentConfig.provider,
+      voiceId: agentOverrides.voiceId ?? agentConfig.voiceId,
+      language: agentOverrides.language ?? agentConfig.language,
+      speed: agentOverrides.speed ?? agentConfig.speed,
+      quality: agentOverrides.quality ?? agentConfig.quality,
+      latencyMode: agentOverrides.latencyMode ?? agentConfig.latencyMode,
+      autoplay: agentOverrides.autoplay ?? agentConfig.autoplay,
+      inputEnabled: agentOverrides.inputEnabled ?? agentConfig.inputEnabled,
+      outputEnabled: agentOverrides.outputEnabled ?? agentConfig.outputEnabled,
+      interruptionsEnabled: agentOverrides.interruptionsEnabled ?? agentConfig.interruptionsEnabled,
+      visualizationEnabled: agentOverrides.visualizationEnabled ?? agentConfig.visualizationEnabled,
+      inputMode: agentOverrides.inputMode ?? agentConfig.inputMode,
+      microphoneSensitivity: agentOverrides.microphoneSensitivity ?? agentConfig.microphoneSensitivity,
+      noiseSuppression: agentOverrides.noiseSuppression ?? agentConfig.noiseSuppression,
+      agentOverrides: agentOverrides.agentOverrides ?? agentConfig.agentOverrides,
+    };
+  }
+
+  return agentConfig;
 }
 
 /**
@@ -443,9 +479,28 @@ export function applyVoicePreset(
     return baseConfig;
   }
 
+  // 🔧 FIX: Apply preset config with explicit property handling
+  const presetConfig = preset.config;
+  
   return {
     ...baseConfig,
-    ...preset.config,
+    // Apply each preset property explicitly with fallbacks
+    enabled: presetConfig.enabled ?? baseConfig.enabled,
+    provider: presetConfig.provider ?? baseConfig.provider,
+    voiceId: presetConfig.voiceId ?? baseConfig.voiceId,
+    language: presetConfig.language ?? baseConfig.language,
+    speed: presetConfig.speed ?? baseConfig.speed,
+    quality: presetConfig.quality ?? baseConfig.quality,
+    latencyMode: presetConfig.latencyMode ?? baseConfig.latencyMode,
+    autoplay: presetConfig.autoplay ?? baseConfig.autoplay,
+    inputEnabled: presetConfig.inputEnabled ?? baseConfig.inputEnabled,
+    outputEnabled: presetConfig.outputEnabled ?? baseConfig.outputEnabled,
+    interruptionsEnabled: presetConfig.interruptionsEnabled ?? baseConfig.interruptionsEnabled,
+    visualizationEnabled: presetConfig.visualizationEnabled ?? baseConfig.visualizationEnabled,
+    inputMode: presetConfig.inputMode ?? baseConfig.inputMode,
+    microphoneSensitivity: presetConfig.microphoneSensitivity ?? baseConfig.microphoneSensitivity,
+    noiseSuppression: presetConfig.noiseSuppression ?? baseConfig.noiseSuppression,
+    agentOverrides: presetConfig.agentOverrides ?? baseConfig.agentOverrides,
   };
 }
 
@@ -583,8 +638,29 @@ export function mergeVoiceConfigs(
   base: VoiceConfig,
   ...overrides: Partial<VoiceConfig>[]
 ): VoiceConfig {
-  return overrides.reduce(
-    (merged, override) => ({ ...merged, ...override }),
+  return overrides.reduce<VoiceConfig>(
+    (merged, override) => {
+      // 🔧 FIX: Apply each override property explicitly
+      return {
+        ...merged,
+        enabled: override.enabled ?? merged.enabled,
+        provider: override.provider ?? merged.provider,
+        voiceId: override.voiceId ?? merged.voiceId,
+        language: override.language ?? merged.language,
+        speed: override.speed ?? merged.speed,
+        quality: override.quality ?? merged.quality,
+        latencyMode: override.latencyMode ?? merged.latencyMode,
+        autoplay: override.autoplay ?? merged.autoplay,
+        inputEnabled: override.inputEnabled ?? merged.inputEnabled,
+        outputEnabled: override.outputEnabled ?? merged.outputEnabled,
+        interruptionsEnabled: override.interruptionsEnabled ?? merged.interruptionsEnabled,
+        visualizationEnabled: override.visualizationEnabled ?? merged.visualizationEnabled,
+        inputMode: override.inputMode ?? merged.inputMode,
+        microphoneSensitivity: override.microphoneSensitivity ?? merged.microphoneSensitivity,
+        noiseSuppression: override.noiseSuppression ?? merged.noiseSuppression,
+        agentOverrides: override.agentOverrides ?? merged.agentOverrides,
+      };
+    },
     base
   );
 }

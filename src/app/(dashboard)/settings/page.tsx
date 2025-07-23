@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useVoice } from '@/hooks/use-voice';
 import { useUser } from '@clerk/nextjs';
 import { useForm } from 'react-hook-form';
 import { usePreferences, type PreferencesUpdate } from '@/hooks/use-preferences';
@@ -45,6 +46,27 @@ interface SettingsFormData {
   
   // Session preferences
   dailyGoalMinutes: number;
+}
+// In any component:
+
+function TestVoice() {
+  const { speak, isPlaying, isLoading, error } = useVoice();
+  
+  const testVoice = () => {
+    speak({
+      text: "Hello! Your voice system is now fully operational and ready to use!",
+      onComplete: () => console.log('🎉 Voice test completed!'),
+    });
+  };
+  
+  return (
+    <div>
+      <button onClick={testVoice} disabled={isLoading}>
+        {isLoading ? 'Loading...' : isPlaying ? 'Playing...' : 'Test Voice'}
+      </button>
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
 }
 
 export default function SettingsPage() {
@@ -477,6 +499,7 @@ export default function SettingsPage() {
               </Button>
             </div>
           </div>
+           <TestVoice />
         </form>
       </div>
     </div>
