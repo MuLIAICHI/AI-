@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { useChat } from '@/hooks/use-chat';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useChat, type Message } from '@/hooks/use-chat';
 import { MessageItem } from './message-item';
 import { VoiceInputControls } from './voice-input-controls';
 import { VoiceSettingsPanel } from '../settings/voice-settings-panel';
@@ -33,6 +33,7 @@ import {
   MicOff,
   Play,
   Pause,
+  Square,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useVoicePreferences } from '@/hooks/use-voice-preferences';
@@ -48,198 +49,165 @@ interface ChatWindowProps {
   enableVoice?: boolean;
 }
 
-// Message interface to match our enhanced system
-interface Message {
-  id: string;
-  content: string;
-  role: 'user' | 'assistant' | 'system';
-  createdAt: Date;
-  agentName?: string;
-  metadata?: {
-    tokenUsage?: number;
-    responseTime?: number;
-    confidence?: number;
-    isStreaming?: boolean;
-  };
-}
-
 // ==========================================
-// AGENT CONFIGURATION
-// ==========================================
-
-const AGENT_CONFIG = {
-  'router': {
-    name: 'Smart Router',
-    emoji: '🤖',
-    icon: Bot,
-    description: 'I analyze your questions and connect you with the right specialist',
-    color: 'text-blue-500',
-    bgColor: 'bg-blue-50 dark:bg-blue-950/20',
-  },
-  'digital-mentor': {
-    name: 'Digital Mentor',
-    emoji: '🖥️',
-    icon: Computer,
-    description: 'Your patient guide to mastering essential digital skills',
-    color: 'text-purple-500',
-    bgColor: 'bg-purple-50 dark:bg-purple-950/20',
-  },
-  'finance-guide': {
-    name: 'Finance Guide',
-    emoji: '💰',
-    icon: DollarSign,
-    description: 'Your trusted guide for smart money management',
-    color: 'text-green-500',
-    bgColor: 'bg-green-50 dark:bg-green-950/20',
-  },
-  'health-coach': {
-    name: 'Health Coach',
-    emoji: '🏥',
-    icon: Heart,
-    description: 'Your caring companion for healthy living',
-    color: 'text-red-500',
-    bgColor: 'bg-red-50 dark:bg-red-950/20',
-  },
-} as const;
-
-// ==========================================
-// WELCOME COMPONENT
-// ==========================================
-
-function WelcomeMessage() {
-  return (
-    <div className="text-center space-y-6 py-8">
-      <div className="flex justify-center">
-        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
-          <Sparkles className="w-8 h-8 text-white" />
-        </div>
-      </div>
-      
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-200 mb-3">
-          Welcome to Smartlyte AI! 🎉
-        </h1>
-        <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed">
-          I'm here to help you with digital skills, finance advice, and health guidance. 
-          You can type your questions or <strong>speak them aloud</strong> - I understand both!
-        </p>
-      </div>
-
-      <div className="space-y-4">
-        <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300">
-          Try asking me about:
-        </h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl mx-auto">
-          {Object.entries(AGENT_CONFIG).map(([key, agent]) => (
-            <Card key={key} className={cn("hover:shadow-md transition-shadow", agent.bgColor)}>
-              <CardContent className="p-4 text-center">
-                <agent.icon className={cn("w-8 h-8 mx-auto mb-2", agent.color)} />
-                <h4 className="font-medium text-slate-800 dark:text-slate-200 mb-1">
-                  {agent.name}
-                </h4>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  {agent.description}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        <div className="space-y-2">
-          <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300">
-            Quick suggestions:
-          </h4>
-          <div className="flex flex-wrap justify-center gap-2">
-            {[
-              "How do I create a strong password?",
-              "Help me create a budget",
-              "What are healthy eating tips?",
-              "Show me how to use email safely"
-            ].map((suggestion, index) => (
-              <Badge key={index} variant="outline" className="cursor-pointer hover:bg-primary/10">
-                {suggestion}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ==========================================
-// VOICE STATUS INDICATOR
+// VOICE STATUS INDICATOR COMPONENT
 // ==========================================
 
 function VoiceStatusIndicator() {
-  const { isVoiceEnabled, preferences } = useVoicePreferences();
   const { 
     isPlaying, 
     isPaused, 
-    isLoading, 
+    isLoading: voiceLoading, 
     currentText, 
     sessionActive,
-    stop,
+    stop 
   } = useVoice();
+  const { preferences } = useVoicePreferences();
 
-  if (!isVoiceEnabled || !preferences?.voiceEnabled) {
+  // Don't show if voice is disabled
+  if (!preferences?.voiceEnabled) {
     return null;
   }
 
-  const handleStopPlayback = async () => {
-    try {
-      await stop();
-    } catch (error) {
-      console.error('Failed to stop voice playback:', error);
-    }
-  };
-
-  if (isLoading) {
+  // Currently speaking
+  if (isPlaying && currentText) {
     return (
       <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 dark:bg-blue-950/20 rounded-full text-blue-700 dark:text-blue-300 text-sm">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        <span>Generating voice...</span>
-      </div>
-    );
-  }
-
-  if (isPlaying) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-1 bg-green-50 dark:bg-green-950/20 rounded-full text-green-700 dark:text-green-300 text-sm">
-        <Volume2 className="h-3 w-3" />
-        <span>Playing message</span>
+        <div className="flex items-center gap-1">
+          <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+          <span>🎵 Playing</span>
+        </div>
+        
         <Button
           variant="ghost"
           size="sm"
-          onClick={handleStopPlayback}
-          className="h-5 w-5 p-0 ml-1 hover:bg-green-200 dark:hover:bg-green-800"
+          onClick={stop}
+          className="h-5 w-5 p-0 hover:bg-blue-100 dark:hover:bg-blue-900/50"
+          title="Stop playback"
         >
-          <Pause className="h-3 w-3" />
+          <Square className="h-3 w-3" />
         </Button>
       </div>
     );
   }
 
-  if (isPaused) {
+  // Loading voice
+  if (voiceLoading) {
     return (
-      <div className="flex items-center gap-2 px-3 py-1 bg-yellow-50 dark:bg-yellow-950/20 rounded-full text-yellow-700 dark:text-yellow-300 text-sm">
-        <VolumeX className="h-3 w-3" />
-        <span>Voice paused</span>
+      <div className="flex items-center gap-2 px-3 py-1 bg-orange-50 dark:bg-orange-950/20 rounded-full text-orange-700 dark:text-orange-300 text-sm">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        <span>🎤 Loading voice...</span>
       </div>
     );
   }
 
+  // Paused
+  if (isPaused) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-1 bg-yellow-50 dark:bg-yellow-950/20 rounded-full text-yellow-700 dark:text-yellow-300 text-sm">
+        <Pause className="h-3 w-3" />
+        <span>⏸️ Paused</span>
+      </div>
+    );
+  }
+
+  // Session active - ready to speak
   if (sessionActive) {
     return (
-      <div className="flex items-center gap-2 px-3 py-1 bg-gray-50 dark:bg-gray-950/20 rounded-full text-gray-700 dark:text-gray-300 text-sm">
+      <div className="flex items-center gap-2 px-3 py-1 bg-green-50 dark:bg-green-950/20 rounded-full text-green-700 dark:text-green-300 text-sm">
         <Volume2 className="h-3 w-3" />
-        <span>Voice ready</span>
+        <span>🎤 Voice ready</span>
       </div>
     );
   }
 
   return null;
+}
+
+// ==========================================
+// VOICE CHAT ORCHESTRATOR
+// ==========================================
+
+/**
+ * Handles auto-play and voice coordination for the chat
+ */
+function useVoiceChatOrchestrator() {
+  const { messages } = useChat();
+  const { preferences } = useVoicePreferences();
+  const { speak, isPlaying, stop } = useVoice();
+  
+  // Track last processed message to avoid re-playing
+  const lastProcessedMessageRef = useRef<string | null>(null);
+  
+  // Auto-play new AI messages
+  useEffect(() => {
+    console.log('🔍 Auto-play check:', {
+      voiceEnabled: preferences?.voiceEnabled,
+      voiceAutoplay: preferences?.voiceAutoplay,
+      messagesCount: messages.length
+    });
+    
+    if (!preferences?.voiceEnabled || !preferences?.voiceAutoplay) {
+      console.log('❌ Auto-play disabled:', { 
+        voiceEnabled: preferences?.voiceEnabled, 
+        voiceAutoplay: preferences?.voiceAutoplay 
+      });
+      return;
+    }
+
+    // Get the last assistant message (ignore system messages)
+    const lastAssistantMessage = [...messages]
+      .reverse()
+      .find(msg => msg.role === 'assistant');
+
+    console.log('🔍 Last assistant message:', {
+      id: lastAssistantMessage?.id,
+      processed: lastProcessedMessageRef.current,
+      content: lastAssistantMessage?.content?.substring(0, 50) + '...',
+      isStreaming: lastAssistantMessage?.metadata?.isStreaming
+    });
+
+    // If we have a new assistant message that hasn't been processed
+    if (
+      lastAssistantMessage && 
+      lastAssistantMessage.id !== lastProcessedMessageRef.current &&
+      lastAssistantMessage.content.trim().length > 10 && // Only substantial content
+      !lastAssistantMessage.metadata?.isStreaming // Don't play while streaming
+    ) {
+      
+      console.log('🎤 Auto-playing new AI message:', lastAssistantMessage.id);
+      
+      // Mark as processed
+      lastProcessedMessageRef.current = lastAssistantMessage.id;
+      
+      // Auto-play the message
+      speak({
+        text: lastAssistantMessage.content,
+        voiceId: preferences.preferredVoice,
+        speed: preferences.voiceSpeed || 1.0,
+        interrupt: true, // Stop any current playback
+        onStart: () => console.log('🎵 Auto-play started for:', lastAssistantMessage.id),
+        onComplete: () => console.log('✅ Auto-play completed for:', lastAssistantMessage.id),
+        onError: (error) => console.error('❌ Auto-play error for:', lastAssistantMessage.id, error),
+      }).catch(error => {
+        console.error('Failed to auto-play message:', error);
+      });
+    } else {
+      console.log('❌ Auto-play skipped - no new message or already processed');
+    }
+  }, [messages, preferences?.voiceEnabled, preferences?.voiceAutoplay, preferences?.preferredVoice, preferences?.voiceSpeed, speak]);
+
+  // Stop voice when user starts typing (interrupt for new input)
+  const handleUserTyping = useCallback(() => {
+    if (isPlaying) {
+      console.log('🛑 Stopping voice due to user typing');
+      stop();
+    }
+  }, [isPlaying, stop]);
+
+  return {
+    handleUserTyping,
+  };
 }
 
 // ==========================================
@@ -262,6 +230,9 @@ export function ChatWindow({
 
   const { isVoiceEnabled, preferences } = useVoicePreferences();
   const { startSession, endSession, sessionActive } = useVoice();
+
+  // Voice chat orchestration
+  const { handleUserTyping } = useVoiceChatOrchestrator();
 
   // Local input state
   const [input, setInput] = useState('');
@@ -308,6 +279,9 @@ export function ChatWindow({
     setInput('');
     setIsStreaming(true);
     
+    // Stop any current voice playback when user sends a message
+    handleUserTyping();
+    
     try {
       await sendMessage(messageContent);
     } catch (error) {
@@ -317,11 +291,54 @@ export function ChatWindow({
     }
   };
 
-  // Handle voice transcript
+  // Handle input change with typing detection
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+    
+    // If user starts typing and voice is playing, interrupt it
+    if (e.target.value.length > 0) {
+      handleUserTyping();
+    }
+  };
+
+  // Handle voice transcript (fallback - auto-send bypasses this)
   const handleVoiceTranscript = (transcript: string) => {
+    // Only fill input if auto-send is disabled or failed
+    console.log('📝 Voice transcript received (fallback):', transcript);
     setInput(transcript);
     setVoiceError(null);
+    inputRef.current?.focus();
   };
+
+  // 🚀 NEW: Handle auto-send from voice input
+  const handleVoiceAutoSend = useCallback(async (transcript: string) => {
+    console.log('🚀 Auto-sending voice transcript:', transcript);
+    
+    // Clear any existing voice error
+    setVoiceError(null);
+    
+    // Stop any current voice playback when user sends a message
+    handleUserTyping();
+    
+    // Send message directly to AI (bypassing input field)
+    try {
+      await sendMessage(transcript);
+      console.log('✅ Voice message auto-sent successfully');
+    } catch (error) {
+      console.error('❌ Failed to auto-send voice message:', error);
+      
+      // Fallback: put transcript in input field for manual send
+      setInput(transcript);
+      inputRef.current?.focus();
+      
+      // Show error
+      const errorMessage = error instanceof Error ? error.message : 'Failed to send message';
+      setVoiceError(`Auto-send failed: ${errorMessage}. Please send manually.`);
+      
+      // Re-throw so VoiceInputControls knows it failed
+      throw error;
+    }
+  }, [sendMessage, handleUserTyping, setInput]);
 
   // Handle voice error
   const handleVoiceError = (error: string) => {
@@ -351,63 +368,122 @@ export function ChatWindow({
 
   return (
     <div className={cn("flex flex-col h-full bg-white dark:bg-slate-900", className)}>
-      {/* Header with Voice Status */}
-      {voiceEnabled && (
-        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+      
+      {/* 🎤 CHAT HEADER WITH VOICE STATUS */}
+      <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+        
+        {/* Chat Info */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-slate-600 dark:text-slate-400" />
+            <h2 className="font-semibold text-slate-900 dark:text-slate-100">
+              AI Chat
+            </h2>
+          </div>
+          
+          {/* Message Count Badge */}
+          <Badge variant="secondary" className="text-xs">
+            {messages.filter(m => m.role !== 'system').length} messages
+          </Badge>
+        </div>
+
+        {/* Voice Status & Settings */}
+        <div className="flex items-center gap-3">
+          
+          {/* 🎤 VOICE STATUS INDICATOR */}
           <VoiceStatusIndicator />
-          <VoiceSettingsPanel
-            trigger={
-              <Button variant="ghost" size="sm">
-                <Settings className="h-4 w-4 mr-1" />
-                Voice Settings
+          
+          {/* Voice Settings Panel */}
+          {voiceEnabled && (
+            <VoiceSettingsPanel
+              trigger={
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              }
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Welcome Message */}
+      {showWelcome && messages.length === 0 && (
+        <div className="p-6 text-center border-b border-slate-200 dark:border-slate-700">
+          <div className="max-w-md mx-auto">
+            <Sparkles className="h-12 w-12 text-blue-500 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+              Welcome to Smartlyte AI
+            </h3>
+            <p className="text-slate-600 dark:text-slate-400 text-sm">
+              Start a conversation with our AI assistants. Ask questions about digital skills, 
+              financial planning, or health & wellness.
+              {voiceEnabled && (
+                <span className="block mt-2 text-blue-600 dark:text-blue-400 font-medium">
+                  🎤 Just speak naturally - I'll understand and respond with voice instantly!
+                </span>
+              )}
+            </p>
+            
+            {/* Quick Start Suggestions */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6">
+              <Button variant="outline" size="sm" className="text-xs">
+                <Computer className="h-3 w-3 mr-1" />
+                Digital Skills
               </Button>
-            }
-          />
+              <Button variant="outline" size="sm" className="text-xs">
+                <DollarSign className="h-3 w-3 mr-1" />
+                Finance Guide
+              </Button>
+              <Button variant="outline" size="sm" className="text-xs">
+                <Heart className="h-3 w-3 mr-1" />
+                Health Coach
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🚀 STREAMLINED: Silent Voice Input - Pure Voice Conversation */}
+      {voiceEnabled && preferences?.voiceInputEnabled && (
+        <div className="p-6 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/20 dark:to-purple-950/20">
+          <div className="max-w-2xl mx-auto">
+            <VoiceInputControls
+              onTranscript={handleVoiceTranscript}
+              onAutoSend={handleVoiceAutoSend}
+              onError={handleVoiceError}
+              disabled={isLoading || isStreaming}
+              autoSend={true}
+              minConfidence={0.6}
+              showTranscript={false}
+            />
+            
+            {/* Streamlined Helper Text */}
+            <div className="text-center mt-4">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                🎤 Pure Voice Conversation
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                Speak naturally → AI responds with voice → Continue the conversation
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Messages Area */}
       <ScrollArea className="flex-1 p-4">
-        <div className="space-y-4 max-w-4xl mx-auto">
-          {/* Welcome Message */}
-          {showWelcome && messages.length === 0 && (
-            <WelcomeMessage />
-          )}
-
-          {/* Empty State */}
-          {!showWelcome && messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center min-h-[300px] text-center space-y-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                <MessageSquare className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-2">
-                  Start a Conversation
-                </h3>
-                <p className="text-slate-600 dark:text-slate-400 text-sm">
-                  Ask me anything about digital skills, finance, or health
-                  {voiceEnabled && <span className="block mt-1">You can speak or type your questions!</span>}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Messages */}
+        <div className="space-y-6 max-w-4xl mx-auto">
           {messages
-            .filter(message => message.role !== 'system')
+            .filter(message => message.role !== 'system') // Don't display system messages
             .map((message, index) => (
             <MessageItem
               key={message.id}
-              message={{
-                ...message,
-                role: message.role as 'user' | 'assistant'
-              }}
-              isLast={index === messages.length - 1}
+              message={message}
+              isLast={index === messages.filter(m => m.role !== 'system').length - 1}
               onCopy={handleCopy}
               onRetry={handleRetry}
               onFeedback={handleFeedback}
               showActions={true}
-              showTimestamp={true}
               showVoiceControls={voiceEnabled}
               voiceEnabled={voiceEnabled}
             />
@@ -427,7 +503,12 @@ export function ChatWindow({
                       <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
                       <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
                     </div>
-                    <span className="text-xs text-slate-500 ml-2">Thinking...</span>
+                    <span className="text-xs text-slate-500 ml-2">
+                      {voiceEnabled && preferences?.voiceAutoplay 
+                        ? "Thinking... (preparing voice response)" 
+                        : "Thinking..."
+                      }
+                    </span>
                   </div>
                 </div>
               </div>
@@ -458,28 +539,17 @@ export function ChatWindow({
         </div>
       )}
 
-      {/* Voice Input Section */}
-      {voiceEnabled && preferences?.voiceInputEnabled && (
-        <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-          <VoiceInputControls
-            onTranscript={handleVoiceTranscript}
-            onError={handleVoiceError}
-            disabled={isLoading || isStreaming}
-          />
-        </div>
-      )}
-
-      {/* Input Form */}
+      {/* Text Input Form */}
       <div className="p-4 border-t border-slate-200 dark:border-slate-700">
         <form onSubmit={handleSubmit} className="flex gap-3">
           <div className="flex-1">
             <Input
               ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
               placeholder={
                 voiceEnabled && preferences?.voiceInputEnabled
-                  ? "Type your message or use voice input above..."
+                  ? "Type here, or speak above for instant voice conversation..."
                   : "Type your message..."
               }
               disabled={isLoading || isStreaming}
@@ -500,25 +570,39 @@ export function ChatWindow({
           </Button>
         </form>
 
-        {/* Quick Actions */}
+        {/* Chat Status Bar */}
         <div className="flex items-center justify-between mt-3 text-xs text-slate-500">
           <div className="flex items-center gap-4">
+            
+            {/* Voice Status */}
             {voiceEnabled && (
-              <div className="flex items-center gap-1">
-                <Volume2 className="h-3 w-3" />
-                <span>Voice enabled</span>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1">
+                  <Volume2 className="h-3 w-3" />
+                  <span>Voice enabled</span>
+                </div>
+                
+                {preferences?.voiceAutoplay && (
+                  <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                    <Play className="h-3 w-3" />
+                    <span>Auto-play ON</span>
+                  </div>
+                )}
               </div>
             )}
+            
+            {/* Message Count */}
             <div className="flex items-center gap-1">
               <MessageSquare className="h-3 w-3" />
               <span>{messages.filter(m => m.role !== 'system').length} messages</span>
             </div>
           </div>
           
+          {/* Usage Tips */}
           <div className="flex items-center gap-2">
             <span>Press Enter to send</span>
             {voiceEnabled && preferences?.voiceInputEnabled && (
-              <span>• Use voice input above</span>
+              <span>• Speak above for instant voice conversation</span>
             )}
           </div>
         </div>
