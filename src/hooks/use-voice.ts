@@ -349,33 +349,54 @@ export function useVoice(): UseVoiceReturn {
   /**
    * Start a voice session for analytics
    */
+  // const startSession = useCallback(async (options?: VoiceSessionOptions) => {
+  //   const manager = voiceManagerRef.current || initializeVoiceManager();
+  //   if (!manager) {
+  //     console.warn('⚠️ Cannot start session: Voice manager not available');
+  //     return;
+  //   }
+
+  //   try {
+  //     currentConversationId.current = options?.conversationId || null;
+  //     await manager.startSession(options?.conversationId);
+  //     setSessionActive(true);
+  //     setSessionStats({
+  //       totalDuration: 0,
+  //       messagesCount: 0,
+  //       userSpeechDuration: 0,
+  //       agentSpeechDuration: 0,
+  //       interruptionsCount: 0,
+  //       averageLatency: 0,
+  //       errorCount: 0,
+  //       successRate: 0,
+  //     });
+  //     console.log('🎯 Voice session started');
+  //   } catch (error) {
+  //     console.error('❌ Failed to start voice session:', error);
+  //   }
+  // }, [initializeVoiceManager]);
+
   const startSession = useCallback(async (options?: VoiceSessionOptions) => {
-    const manager = voiceManagerRef.current || initializeVoiceManager();
-    if (!manager) {
-      console.warn('⚠️ Cannot start session: Voice manager not available');
-      return;
-    }
-
-    try {
-      currentConversationId.current = options?.conversationId || null;
-      await manager.startSession(options?.conversationId);
-      setSessionActive(true);
-      setSessionStats({
-        totalDuration: 0,
-        messagesCount: 0,
-        userSpeechDuration: 0,
-        agentSpeechDuration: 0,
-        interruptionsCount: 0,
-        averageLatency: 0,
-        errorCount: 0,
-        successRate: 0,
-      });
-      console.log('🎯 Voice session started');
-    } catch (error) {
-      console.error('❌ Failed to start voice session:', error);
-    }
-  }, [initializeVoiceManager]);
-
+  // 🚀 TEMPORARY FIX: Skip database session creation to test auto-play
+  console.log('🔧 Starting voice session without database (temporary fix)');
+  
+  try {
+    setSessionActive(true);
+    setSessionStats({
+      totalDuration: 0,
+      messagesCount: 0,
+      userSpeechDuration: 0,
+      agentSpeechDuration: 0,
+      interruptionsCount: 0,
+      averageLatency: 0,
+      errorCount: 0,
+      successRate: 0,
+    });
+    console.log('🎯 Voice session started (bypassing database)');
+  } catch (error) {
+    console.error('❌ Failed to start voice session:', error);
+  }
+}, []);
   /**
    * End current voice session
    */
