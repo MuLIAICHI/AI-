@@ -170,18 +170,18 @@ export class VoicePreferencesService {
 
       // Convert database preferences to VoicePreferences interface
       const voicePreferences: VoicePreferences = {
-        voiceEnabled: preferences.voiceEnabled || false,
-        voiceLanguage: preferences.voiceLanguage || 'en',
-        voiceSpeed: preferences.voiceSpeed || 1.0,
-        voiceProvider: (preferences.voiceProvider as VoiceProvider) || 'openai',
-        preferredVoice: preferences.preferredVoice || 'alloy',
-        voiceAutoplay: preferences.voiceAutoplay || true,
-        voiceInputEnabled: preferences.voiceInputEnabled || false,
-        voiceOutputEnabled: preferences.voiceOutputEnabled || true,
-        voiceInterruptionsEnabled: preferences.voiceInterruptionsEnabled || true,
-        voiceVisualizationEnabled: preferences.voiceVisualizationEnabled || true,
-        voiceQuality: (preferences.voiceQuality as VoiceQuality) || 'standard',
-        voiceLatencyMode: (preferences.voiceLatencyMode as VoiceLatencyMode) || 'balanced',
+        voiceEnabled: preferences.voiceEnabled ?? false,
+        voiceLanguage: preferences.voiceLanguage ?? 'en',
+        voiceSpeed: preferences.voiceSpeed ?? 1.0,
+        voiceProvider: (preferences.voiceProvider as VoiceProvider) ?? 'openai',
+        preferredVoice: preferences.preferredVoice ?? 'alloy',
+        voiceAutoplay: preferences.voiceAutoplay ?? true,
+        voiceInputEnabled: preferences.voiceInputEnabled ?? false,
+        voiceOutputEnabled: preferences.voiceOutputEnabled ?? true,
+        voiceInterruptionsEnabled: preferences.voiceInterruptionsEnabled ?? true,
+        voiceVisualizationEnabled: preferences.voiceVisualizationEnabled ?? true,
+        voiceQuality: (preferences.voiceQuality as VoiceQuality) ?? 'standard',
+        voiceLatencyMode: (preferences.voiceLatencyMode as VoiceLatencyMode) ?? 'balanced',
       };
 
       // Get usage statistics
@@ -229,7 +229,7 @@ export class VoicePreferencesService {
         voiceProvider: 'openai',
         preferredVoice: 'alloy',
         voiceAutoplay: true,
-        voiceInputEnabled: false,
+        voiceInputEnabled: true,
         voiceOutputEnabled: true,
         voiceInterruptionsEnabled: true,
         voiceVisualizationEnabled: true,
@@ -335,7 +335,7 @@ export class VoicePreferencesService {
         voiceProvider: 'openai',
         preferredVoice: 'alloy',
         voiceAutoplay: true,
-        voiceInputEnabled: false,
+        voiceInputEnabled: true,
         voiceOutputEnabled: true,
         voiceInterruptionsEnabled: true,
         voiceVisualizationEnabled: true,
@@ -354,45 +354,6 @@ export class VoicePreferencesService {
   // VOICE SESSIONS MANAGEMENT (Fixed to match actual schema)
   // ==========================================
 
-  /**
-   * Create new voice session for tracking
-   */
-  // static async createVoiceSession(options: CreateVoiceSessionOptions): Promise<string | null> {
-  //   try {
-  //     // ✅ FIXED: Use actual database field names
-  //     const sessionData: NewVoiceSession = {
-  //       userId: options.userId,
-  //       conversationId: options.conversationId,
-  //       sessionType: options.sessionType,
-  //       voiceProvider: options.voiceProvider, // ✅ FIXED: voiceProvider not provider
-  //       voiceLanguage: options.voiceLanguage,
-  //       voiceId: options.voiceId || null,
-  //       startedAt: new Date(),
-  //       // Individual fields instead of stats object:
-  //       totalDuration: 0,
-  //       messagesCount: 0,
-  //       userSpeechDuration: 0,
-  //       agentSpeechDuration: 0,
-  //       interruptionsCount: 0,
-  //       averageLatency: null,
-  //       errorCount: 0,
-  //       successRate: null,
-  //       sessionData: null,
-  //     };
-
-  //     const [session] = await db
-  //       .insert(voiceSessions)
-  //       .values(sessionData)
-  //       .returning({ id: voiceSessions.id });
-
-  //     console.log(`✅ Created voice session: ${session.id} for user: ${options.userId}`);
-  //     return session.id;
-
-  //   } catch (error) {
-  //     console.error('Error creating voice session:', error);
-  //     return null;
-  //   }
-  // }
 static async createVoiceSession(options: CreateVoiceSessionOptions): Promise<string | null> {
   try {
     // 🚀 FIX: Generate proper UUID if conversationId is invalid
@@ -737,7 +698,7 @@ static async createVoiceSession(options: CreateVoiceSessionOptions): Promise<str
    */
   private static hasCustomVoiceSettings(preferences: VoicePreferences): boolean {
     return (
-      preferences.voiceEnabled !== false ||
+      preferences.voiceEnabled !== true ||
       preferences.voiceSpeed !== 1.0 ||
       preferences.voiceProvider !== 'openai' ||
       preferences.preferredVoice !== 'alloy' ||

@@ -29,7 +29,7 @@ export function shouldAutoPlayMessage(
   if (!message || !preferences) return false;
   
   // Check voice settings
-  if (!preferences.voiceEnabled || !preferences.voiceAutoplay) return false;
+  if (!preferences.voiceEnabled || !preferences.voiceAutoplay) return true;
   
   // Only auto-play assistant messages
   if (message.role !== 'assistant') return false;

@@ -136,7 +136,7 @@ export const userPreferences = pgTable('user_preferences', {
   dailyGoalMinutes: integer('daily_goal_minutes').default(30),
   
   // 🎤 VOICE PREFERENCES (NEW)
-  voiceEnabled: boolean('voice_enabled').default(false),
+  voiceEnabled: boolean('voice_enabled').default(true),
   voiceLanguage: varchar('voice_language', { length: 10 }).default('en'), // en, es, fr, de, etc.
   voiceSpeed: real('voice_speed').default(1.0), // 0.5 to 2.0 playback speed
   voiceProvider: varchar('voice_provider', { length: 50 }).default('openai'), // openai, elevenlabs, etc.
