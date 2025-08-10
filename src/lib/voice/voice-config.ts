@@ -1,5 +1,5 @@
 // src/lib/voice/voice-config.ts
-// Voice provider configurations and setup helpers
+// Enhanced voice configuration with Mastra Real-time support
 
 import {
   VoiceConfig,
@@ -22,13 +22,49 @@ import {
 } from './voice-types';
 
 // ==========================================
-// ENVIRONMENT CONFIGURATION
+// ENHANCED ENVIRONMENT CONFIGURATION
 // ==========================================
 
 /**
- * Voice service environment configuration
+ * Real-time voice specific configuration
  */
-export interface VoiceEnvironmentConfig {
+export interface RealtimeVoiceConfig {
+  enabled: boolean;
+  model: string;
+  defaultVoice: OpenAIVoiceId;
+  temperature: number;
+  maxTokens: number;
+  vadSettings: {
+    threshold: number;
+    silenceDurationMs: number;
+    prefixPaddingMs: number;
+  };
+  websocket: {
+    timeout: number;
+    reconnectAttempts: number;
+    heartbeatInterval: number;
+  };
+  audio: {
+    format: 'pcm16' | 'g711_ulaw' | 'g711_alaw';
+    sampleRate: number;
+    bufferSize: number;
+  };
+  session: {
+    maxDuration: number;
+    requireAuth: boolean;
+    maxDailySessions: number;
+  };
+  debug: {
+    enabled: boolean;
+    logAudioEvents: boolean;
+    enableMetrics: boolean;
+  };
+}
+
+/**
+ * Enhanced voice environment configuration with real-time support
+ */
+export interface EnhancedVoiceEnvironmentConfig {
   openai: {
     apiKey: string;
     baseUrl?: string;
@@ -40,40 +76,45 @@ export interface VoiceEnvironmentConfig {
     ttsEnabled: boolean;
     sttEnabled: boolean;
     voiceVisualizationEnabled: boolean;
+    fallbackEnabled: boolean;
   };
   limits: {
-    maxSessionDuration: number; // seconds
-    maxMessageLength: number; // characters
+    maxSessionDuration: number;
+    maxMessageLength: number;
     maxConcurrentSessions: number;
-    dailyUsageLimit: number; // API calls
+    dailyUsageLimit: number;
   };
   audio: {
     sampleRate: number;
     channelCount: number;
     bufferSize: number;
-    maxRecordingDuration: number; // seconds
+    maxRecordingDuration: number;
   };
+  // 🆕 NEW: Real-time specific configuration
+  realtime: RealtimeVoiceConfig;
 }
 
 /**
- * Get environment configuration with defaults
+ * Get enhanced environment configuration with real-time support
  */
-export function getVoiceEnvironmentConfig(): VoiceEnvironmentConfig {
-  return {
+export function getEnhancedVoiceEnvironmentConfig(): EnhancedVoiceEnvironmentConfig {
+  // Base configuration (your existing setup)
+  const baseConfig = {
     openai: {
-      apiKey: process.env.OPENAI_API_KEY || '',
+      apiKey: "key",
       baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
       timeout: parseInt(process.env.VOICE_TIMEOUT || '30000'),
       maxRetries: parseInt(process.env.VOICE_MAX_RETRIES || '3'),
     },
     features: {
-      realtimeEnabled: process.env.VOICE_REALTIME_ENABLED === 'true',
-      ttsEnabled: process.env.VOICE_TTS_ENABLED !== 'false', // default true
-      sttEnabled: process.env.VOICE_STT_ENABLED !== 'false', // default true
-      voiceVisualizationEnabled: process.env.VOICE_VISUALIZATION_ENABLED !== 'false', // default true
+      realtimeEnabled : true, 
+      ttsEnabled: process.env.VOICE_TTS_ENABLED !== 'false',
+      sttEnabled: process.env.VOICE_STT_ENABLED !== 'false',
+      voiceVisualizationEnabled: process.env.VOICE_VISUALIZATION_ENABLED !== 'false',
+      fallbackEnabled: process.env.VOICE_FALLBACK_ENABLED !== 'false', // 🆕 NEW
     },
     limits: {
-      maxSessionDuration: parseInt(process.env.VOICE_MAX_SESSION_DURATION || '1800'), // 30 minutes
+      maxSessionDuration: parseInt(process.env.VOICE_MAX_SESSION_DURATION || '1800'),
       maxMessageLength: parseInt(process.env.VOICE_MAX_MESSAGE_LENGTH || '4000'),
       maxConcurrentSessions: parseInt(process.env.VOICE_MAX_CONCURRENT_SESSIONS || '5'),
       dailyUsageLimit: parseInt(process.env.VOICE_DAILY_LIMIT || '1000'),
@@ -82,42 +123,238 @@ export function getVoiceEnvironmentConfig(): VoiceEnvironmentConfig {
       sampleRate: parseInt(process.env.VOICE_SAMPLE_RATE || '24000'),
       channelCount: parseInt(process.env.VOICE_CHANNEL_COUNT || '1'),
       bufferSize: parseInt(process.env.VOICE_BUFFER_SIZE || '4096'),
-      maxRecordingDuration: parseInt(process.env.VOICE_MAX_RECORDING_DURATION || '300'), // 5 minutes
+      maxRecordingDuration: parseInt(process.env.VOICE_MAX_RECORDING_DURATION || '300'),
     },
+  };
+
+  // 🆕 NEW: Real-time configuration
+  const realtimeConfig: RealtimeVoiceConfig = {
+    enabled: true,
+    model: process.env.REALTIME_MODEL || 'gpt-4o-realtime-preview-2024-12-17',
+    defaultVoice: (process.env.REALTIME_VOICE_DEFAULT as OpenAIVoiceId) || 'alloy',
+    temperature: parseFloat(process.env.REALTIME_TEMPERATURE || '0.8'),
+    maxTokens: parseInt(process.env.REALTIME_MAX_TOKENS || '1000'),
+    vadSettings: {
+      threshold: parseFloat(process.env.REALTIME_VAD_THRESHOLD || '0.6'),
+      silenceDurationMs: parseInt(process.env.REALTIME_VAD_SILENCE_DURATION || '1200'),
+      prefixPaddingMs: parseInt(process.env.REALTIME_VAD_PREFIX_PADDING || '300'),
+    },
+    websocket: {
+      timeout: parseInt(process.env.REALTIME_WS_TIMEOUT || '30000'),
+      reconnectAttempts: parseInt(process.env.REALTIME_WS_RECONNECT_ATTEMPTS || '3'),
+      heartbeatInterval: parseInt(process.env.REALTIME_WS_HEARTBEAT_INTERVAL || '10000'),
+    },
+    audio: {
+      format: (process.env.REALTIME_AUDIO_FORMAT as any) || 'pcm16',
+      sampleRate: parseInt(process.env.REALTIME_SAMPLE_RATE || '24000'),
+      bufferSize: parseInt(process.env.REALTIME_BUFFER_SIZE || '4096'),
+    },
+    session: {
+      maxDuration: parseInt(process.env.REALTIME_SESSION_TTL || '1800'),
+      requireAuth: process.env.REALTIME_REQUIRE_AUTH !== 'false',
+      maxDailySessions: parseInt(process.env.REALTIME_MAX_DAILY_SESSIONS || '100'),
+    },
+    debug: {
+      enabled: process.env.REALTIME_DEBUG_MODE === 'true',
+      logAudioEvents: process.env.REALTIME_LOG_AUDIO_EVENTS === 'true',
+      enableMetrics: process.env.REALTIME_ENABLE_METRICS !== 'false',
+    },
+  };
+
+  return {
+    ...baseConfig,
+    realtime: realtimeConfig,
   };
 }
 
 // ==========================================
-// OPENAI PROVIDER CONFIGURATIONS
+// REAL-TIME CONFIGURATION FACTORIES
 // ==========================================
 
 /**
- * OpenAI Realtime API configuration factory
+ * Create Mastra OpenAI Realtime configuration
  */
-export function createOpenAIRealtimeConfig(
+export function createMastraRealtimeConfig(
   voice: OpenAIVoiceId = 'alloy',
   options?: Partial<OpenAIRealtimeConfig>
 ): OpenAIRealtimeConfig {
-  const envConfig = getVoiceEnvironmentConfig();
+  const envConfig = getEnhancedVoiceEnvironmentConfig();
+  const realtimeConfig = envConfig.realtime;
   
   return {
-    model: 'gpt-4o-realtime-preview-2024-12-17',
-    voice,
-    temperature: 0.8,
-    maxTokens: 1000,
+    model: realtimeConfig.model,
+    voice: voice || realtimeConfig.defaultVoice,
+    temperature: realtimeConfig.temperature,
+    maxTokens: realtimeConfig.maxTokens,
     vadSettings: {
-      threshold: 0.6,
-      prefixPaddingMs: 300,
-      silenceDurationMs: 1200,
+      threshold: realtimeConfig.vadSettings.threshold,
+      prefixPaddingMs: realtimeConfig.vadSettings.prefixPaddingMs,
+      silenceDurationMs: realtimeConfig.vadSettings.silenceDurationMs,
     },
-    audioFormat: 'pcm16',
-    sampleRate: envConfig.audio.sampleRate,
+    audioFormat: realtimeConfig.audio.format,
+    sampleRate: realtimeConfig.audio.sampleRate,
     ...options,
   };
 }
 
 /**
- * OpenAI TTS configuration factory
+ * Create voice configuration optimized for real-time use
+ */
+export function createRealtimeOptimizedVoiceConfig(
+  preferences?: Partial<VoicePreferences>
+): VoiceConfig {
+  const envConfig = getEnhancedVoiceEnvironmentConfig();
+  const defaultConfig = DEFAULT_VOICE_CONFIG;
+  
+  // Optimize for real-time performance
+  const realtimeOptimizations: Partial<VoiceConfig> = {
+    latencyMode: 'low',
+    quality: 'standard', // Use standard quality for lower latency
+    inputMode: 'continuous', // Enable continuous listening
+    interruptionsEnabled: true, // Allow interruptions
+    microphoneSensitivity: 0.6, // Balanced sensitivity
+    noiseSuppression: true, // Enable noise suppression
+  };
+
+  return {
+    ...defaultConfig,
+    ...realtimeOptimizations,
+    // Apply user preferences last
+    ...(preferences && {
+      enabled: preferences.voiceEnabled ?? true,
+      provider: preferences.voiceProvider ?? 'openai',
+      voiceId: preferences.preferredVoice ?? envConfig.realtime.defaultVoice,
+      language: preferences.voiceLanguage ?? 'en',
+      speed: preferences.voiceSpeed ?? 1.0,
+      autoplay: preferences.voiceAutoplay ?? true,
+      outputEnabled: preferences.voiceOutputEnabled ?? true,
+      visualizationEnabled: preferences.voiceVisualizationEnabled ?? true,
+    }),
+  };
+}
+
+// ==========================================
+// CONFIGURATION VALIDATION
+// ==========================================
+
+/**
+ * Validate real-time voice configuration
+ */
+export interface RealtimeConfigValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  readyForRealtime: boolean;
+}
+
+/**
+ * Validate configuration for real-time voice
+ */
+export function validateRealtimeConfig(): RealtimeConfigValidationResult {
+  const config = getEnhancedVoiceEnvironmentConfig();
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Check required environment variables
+  if (!config.openai.apiKey) {
+    errors.push('OPENAI_API_KEY is required for real-time voice');
+  }
+
+  if (!config.realtime.enabled) {
+    warnings.push('Real-time voice is disabled (VOICE_REALTIME_ENABLED=false)');
+  }
+
+  // Validate real-time model
+  if (!config.realtime.model.includes('realtime')) {
+    errors.push(`Invalid real-time model: ${config.realtime.model}`);
+  }
+
+  // Validate voice ID
+  if (!isOpenAIVoiceId(config.realtime.defaultVoice)) {
+    errors.push(`Invalid default voice: ${config.realtime.defaultVoice}`);
+  }
+
+  // Performance warnings
+  if (config.realtime.vadSettings.threshold < 0.3 || config.realtime.vadSettings.threshold > 0.9) {
+    warnings.push('VAD threshold should be between 0.3 and 0.9 for optimal performance');
+  }
+
+  if (config.realtime.audio.bufferSize < 2048 || config.realtime.audio.bufferSize > 8192) {
+    warnings.push('Audio buffer size should be between 2048 and 8192 for stable performance');
+  }
+
+  // Check for HTTPS requirement (in browser environment)
+  if (typeof window !== 'undefined' && location.protocol !== 'https:' && location.hostname !== 'localhost') {
+    errors.push('HTTPS is required for microphone access in production');
+  }
+
+  const readyForRealtime = errors.length === 0 && config.realtime.enabled && !!config.openai.apiKey;
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+    readyForRealtime,
+  };
+}
+
+/**
+ * Get configuration status for debugging
+ */
+export function getConfigurationStatus() {
+  const config = getEnhancedVoiceEnvironmentConfig();
+  const validation = validateRealtimeConfig();
+  
+  return {
+    environment: {
+      hasApiKey: !!config.openai.apiKey,
+      realtimeEnabled: config.realtime.enabled,
+      fallbackEnabled: config.features.fallbackEnabled,
+      debugMode: config.realtime.debug.enabled,
+    },
+    audio: {
+      sampleRate: config.realtime.audio.sampleRate,
+      bufferSize: config.realtime.audio.bufferSize,
+      format: config.realtime.audio.format,
+    },
+    session: {
+      maxDuration: config.realtime.session.maxDuration,
+      requireAuth: config.realtime.session.requireAuth,
+      maxDailySessions: config.realtime.session.maxDailySessions,
+    },
+    validation,
+    recommendations: validation.warnings.length > 0 ? validation.warnings : [
+      'Configuration looks good! Ready for real-time voice.',
+    ],
+  };
+}
+
+// ==========================================
+// BACKWARD COMPATIBILITY
+// ==========================================
+
+/**
+ * Legacy function - now enhanced with real-time support
+ * @deprecated Use getEnhancedVoiceEnvironmentConfig instead
+ */
+export function getVoiceEnvironmentConfig() {
+  const enhanced = getEnhancedVoiceEnvironmentConfig();
+  // Return the original interface for backward compatibility
+  return {
+    openai: enhanced.openai,
+    features: enhanced.features,
+    limits: enhanced.limits,
+    audio: enhanced.audio,
+  };
+}
+// Add these exports to the END of your existing src/lib/voice/voice-config.ts file
+
+// ==========================================
+// EXPORTS FOR VOICE MANAGER COMPATIBILITY
+// ==========================================
+
+/**
+ * Create OpenAI TTS configuration (required by voice-manager.ts)
  */
 export function createOpenAITTSConfig(
   voice: OpenAIVoiceId = 'alloy',
@@ -135,391 +372,7 @@ export function createOpenAITTSConfig(
 }
 
 /**
- * OpenAI Whisper (STT) configuration
- */
-export interface OpenAISTTConfig {
-  model: 'whisper-1';
-  language?: string;
-  prompt?: string;
-  responseFormat?: 'json' | 'text' | 'srt' | 'verbose_json' | 'vtt';
-  temperature?: number;
-}
-
-/**
- * Create OpenAI STT configuration
- */
-export function createOpenAISTTConfig(
-  language?: string,
-  options?: Partial<OpenAISTTConfig>
-): OpenAISTTConfig {
-  return {
-    model: 'whisper-1',
-    language,
-    responseFormat: 'json',
-    temperature: 0.0,
-    ...options,
-  };
-}
-
-// ==========================================
-// VOICE CONFIGURATION FACTORIES
-// ==========================================
-
-/**
- * Create default voice configuration for a user
- */
-export function createDefaultVoiceConfig(
-  language: string = 'en',
-  preferences?: Partial<VoicePreferences>
-): VoiceConfig {
-  const recommendedVoice = getRecommendedVoice(language);
-  
-  // 🔧 FIX: Create complete config object with proper defaults
-  const config: VoiceConfig = {
-    ...DEFAULT_VOICE_CONFIG,
-    language,
-    voiceId: recommendedVoice,
-  };
-
-  // 🔧 FIX: Only apply preferences if they exist, with explicit default fallbacks
-  if (preferences) {
-    return {
-      ...config,
-      // Each property gets explicit fallback to avoid undefined values
-      enabled: preferences.voiceEnabled ?? config.enabled,
-      provider: preferences.voiceProvider ?? config.provider,
-      voiceId: preferences.preferredVoice ?? config.voiceId,
-      language: preferences.voiceLanguage ?? config.language,
-      speed: preferences.voiceSpeed ?? config.speed,
-      quality: preferences.voiceQuality ?? config.quality,
-      latencyMode: preferences.voiceLatencyMode ?? config.latencyMode,
-      autoplay: preferences.voiceAutoplay ?? config.autoplay,
-      inputEnabled: preferences.voiceInputEnabled ?? config.inputEnabled,
-      outputEnabled: preferences.voiceOutputEnabled ?? config.outputEnabled,
-      interruptionsEnabled: preferences.voiceInterruptionsEnabled ?? config.interruptionsEnabled,
-      visualizationEnabled: preferences.voiceVisualizationEnabled ?? config.visualizationEnabled,
-    };
-  }
-
-  return config;
-}
-
-
-/**
- * Create voice configuration for specific agent
- */
-export function createAgentVoiceConfig(
-  agentId: string,
-  baseConfig: VoiceConfig,
-  language?: string
-): VoiceConfig {
-  const agentMapping = AGENT_VOICE_MAPPING[agentId];
-  if (!agentMapping) {
-    return baseConfig;
-  }
-
-  const voiceId = language 
-    ? getRecommendedVoice(language) 
-    : agentMapping.defaultVoice;
-
-  // 🔧 FIX: Create new config with explicit type safety
-  const agentConfig: VoiceConfig = {
-    ...baseConfig,
-    voiceId,
-  };
-
-  // 🔧 FIX: Handle agent overrides safely
-  const agentOverrides = baseConfig.agentOverrides?.[agentId];
-  if (agentOverrides) {
-    // Apply each override property explicitly to maintain type safety
-    return {
-      ...agentConfig,
-      enabled: agentOverrides.enabled ?? agentConfig.enabled,
-      provider: agentOverrides.provider ?? agentConfig.provider,
-      voiceId: agentOverrides.voiceId ?? agentConfig.voiceId,
-      language: agentOverrides.language ?? agentConfig.language,
-      speed: agentOverrides.speed ?? agentConfig.speed,
-      quality: agentOverrides.quality ?? agentConfig.quality,
-      latencyMode: agentOverrides.latencyMode ?? agentConfig.latencyMode,
-      autoplay: agentOverrides.autoplay ?? agentConfig.autoplay,
-      inputEnabled: agentOverrides.inputEnabled ?? agentConfig.inputEnabled,
-      outputEnabled: agentOverrides.outputEnabled ?? agentConfig.outputEnabled,
-      interruptionsEnabled: agentOverrides.interruptionsEnabled ?? agentConfig.interruptionsEnabled,
-      visualizationEnabled: agentOverrides.visualizationEnabled ?? agentConfig.visualizationEnabled,
-      inputMode: agentOverrides.inputMode ?? agentConfig.inputMode,
-      microphoneSensitivity: agentOverrides.microphoneSensitivity ?? agentConfig.microphoneSensitivity,
-      noiseSuppression: agentOverrides.noiseSuppression ?? agentConfig.noiseSuppression,
-      agentOverrides: agentOverrides.agentOverrides ?? agentConfig.agentOverrides,
-    };
-  }
-
-  return agentConfig;
-}
-
-/**
- * Convert database preferences to VoiceConfig
- */
-export function voicePreferencesToConfig(
-  preferences: VoicePreferences,
-  language?: string
-): VoiceConfig {
-  return {
-    enabled: preferences.voiceEnabled,
-    provider: preferences.voiceProvider,
-    voiceId: preferences.preferredVoice,
-    language: language || preferences.voiceLanguage,
-    speed: preferences.voiceSpeed,
-    quality: preferences.voiceQuality,
-    latencyMode: preferences.voiceLatencyMode,
-    autoplay: preferences.voiceAutoplay,
-    inputEnabled: preferences.voiceInputEnabled,
-    outputEnabled: preferences.voiceOutputEnabled,
-    interruptionsEnabled: preferences.voiceInterruptionsEnabled,
-    visualizationEnabled: preferences.voiceVisualizationEnabled,
-    inputMode: 'push_to_talk', // Default, not stored in DB yet
-    microphoneSensitivity: 0.6, // Default, not stored in DB yet
-    noiseSuppression: true, // Default, not stored in DB yet
-  };
-}
-
-/**
- * Convert VoiceConfig to database preferences format
- */
-export function voiceConfigToPreferences(config: VoiceConfig): Partial<VoicePreferences> {
-  return {
-    voiceEnabled: config.enabled,
-    voiceLanguage: config.language,
-    voiceSpeed: config.speed,
-    voiceProvider: config.provider,
-    preferredVoice: config.voiceId,
-    voiceAutoplay: config.autoplay,
-    voiceInputEnabled: config.inputEnabled,
-    voiceOutputEnabled: config.outputEnabled,
-    voiceInterruptionsEnabled: config.interruptionsEnabled,
-    voiceVisualizationEnabled: config.visualizationEnabled,
-    voiceQuality: config.quality,
-    voiceLatencyMode: config.latencyMode,
-  };
-}
-
-// ==========================================
-// AGENT VOICE PROFILES
-// ==========================================
-
-/**
- * Create complete voice profile for an agent
- */
-export function createAgentVoiceProfile(
-  agentId: string,
-  language: string = 'en',
-  customVoice?: OpenAIVoiceId
-): AgentVoiceProfile {
-  const agentMapping = AGENT_VOICE_MAPPING[agentId];
-  const voiceId = customVoice || 
-                  (agentMapping ? agentMapping.defaultVoice : getRecommendedVoice(language));
-
-  // Agent-specific instructions
-  const agentInstructions: Record<string, AgentVoiceProfile['instructions']> = {
-    router: {
-      speakingStyle: 'Speak clearly and concisely. Use a helpful and intelligent tone. Pause briefly before introducing specialist agents.',
-      specialHandling: ['agent_transitions', 'routing_explanations'],
-      pronunciationGuide: {
-        'Smartlyte': 'SMART-lite',
-        'AI': 'A-I',
-      },
-    },
-    'digital-mentor': {
-      speakingStyle: 'Speak slowly and patiently. Break down complex concepts. Use encouraging language and check for understanding.',
-      specialHandling: ['step_by_step_instructions', 'technical_terms', 'safety_warnings'],
-      pronunciationGuide: {
-        'WiFi': 'WYE-fye',
-        'URL': 'U-R-L',
-        'HTTP': 'H-T-T-P',
-        'Gmail': 'JEE-mail',
-      },
-    },
-    'finance-guide': {
-      speakingStyle: 'Speak with confidence and authority. Use professional terminology but explain clearly. Emphasize important financial advice.',
-      specialHandling: ['financial_figures', 'risk_warnings', 'legal_disclaimers'],
-      pronunciationGuide: {
-        'API': 'A-P-I',
-        'ROI': 'R-O-I',
-        'APR': 'A-P-R',
-      },
-    },
-    'health-coach': {
-      speakingStyle: 'Use a warm, encouraging tone. Speak with care and empathy. Emphasize positive health behaviors.',
-      specialHandling: ['health_disclaimers', 'measurement_units', 'medical_terms'],
-      pronunciationGuide: {
-        'BMI': 'B-M-I',
-        'cardio': 'CAR-dee-oh',
-      },
-    },
-  };
-
-  return {
-    agentId,
-    voiceId,
-    personality: agentMapping ? agentMapping.personality : {
-      tone: 'helpful',
-      pace: 'normal',
-      emphasis: 'moderate',
-      pauseBehavior: 'natural',
-    },
-    instructions: agentInstructions[agentId] || agentInstructions.router,
-  };
-}
-
-// ==========================================
-// VOICE PRESET CONFIGURATIONS
-// ==========================================
-
-/**
- * Predefined voice presets for different use cases
- */
-export interface VoicePresetConfig {
-  id: string;
-  name: string;
-  description: string;
-  config: Partial<VoiceConfig>;
-  isSystemPreset: boolean;
-  tags: string[];
-}
-
-/**
- * Built-in voice presets
- */
-export const VOICE_PRESETS: VoicePresetConfig[] = [
-  {
-    id: 'learning_mode',
-    name: 'Learning Mode',
-    description: 'Optimized for educational content with clear, patient delivery',
-    config: {
-      speed: 0.9,
-      quality: 'hd',
-      latencyMode: 'quality',
-      interruptionsEnabled: true,
-      visualizationEnabled: true,
-    },
-    isSystemPreset: true,
-    tags: ['education', 'slow', 'clear'],
-  },
-  {
-    id: 'quick_responses',
-    name: 'Quick Responses',
-    description: 'Fast, efficient voice interactions with minimal latency',
-    config: {
-      speed: 1.2,
-      quality: 'standard',
-      latencyMode: 'low',
-      interruptionsEnabled: true,
-      visualizationEnabled: false,
-    },
-    isSystemPreset: true,
-    tags: ['fast', 'efficient', 'low-latency'],
-  },
-  {
-    id: 'accessibility',
-    name: 'Accessibility',
-    description: 'Enhanced for users with hearing or processing difficulties',
-    config: {
-      speed: 0.8,
-      quality: 'hd',
-      latencyMode: 'quality',
-      interruptionsEnabled: false,
-      visualizationEnabled: true,
-    },
-    isSystemPreset: true,
-    tags: ['accessibility', 'clear', 'slow'],
-  },
-  {
-    id: 'professional',
-    name: 'Professional',
-    description: 'Formal tone suitable for business and professional contexts',
-    config: {
-      speed: 1.0,
-      quality: 'hd',
-      latencyMode: 'balanced',
-      voiceId: 'echo', // Professional male voice
-    },
-    isSystemPreset: true,
-    tags: ['business', 'formal', 'professional'],
-  },
-  {
-    id: 'casual',
-    name: 'Casual',
-    description: 'Friendly and relaxed for informal conversations',
-    config: {
-      speed: 1.1,
-      quality: 'standard',
-      latencyMode: 'balanced',
-      voiceId: 'nova', // Friendly female voice
-    },
-    isSystemPreset: true,
-    tags: ['casual', 'friendly', 'relaxed'],
-  },
-];
-
-/**
- * Get voice preset by ID
- */
-export function getVoicePreset(presetId: string): VoicePresetConfig | null {
-  return VOICE_PRESETS.find(preset => preset.id === presetId) || null;
-}
-
-/**
- * Apply voice preset to configuration
- */
-export function applyVoicePreset(
-  baseConfig: VoiceConfig,
-  presetId: string
-): VoiceConfig {
-  const preset = getVoicePreset(presetId);
-  if (!preset) {
-    return baseConfig;
-  }
-
-  // 🔧 FIX: Apply preset config with explicit property handling
-  const presetConfig = preset.config;
-  
-  return {
-    ...baseConfig,
-    // Apply each preset property explicitly with fallbacks
-    enabled: presetConfig.enabled ?? baseConfig.enabled,
-    provider: presetConfig.provider ?? baseConfig.provider,
-    voiceId: presetConfig.voiceId ?? baseConfig.voiceId,
-    language: presetConfig.language ?? baseConfig.language,
-    speed: presetConfig.speed ?? baseConfig.speed,
-    quality: presetConfig.quality ?? baseConfig.quality,
-    latencyMode: presetConfig.latencyMode ?? baseConfig.latencyMode,
-    autoplay: presetConfig.autoplay ?? baseConfig.autoplay,
-    inputEnabled: presetConfig.inputEnabled ?? baseConfig.inputEnabled,
-    outputEnabled: presetConfig.outputEnabled ?? baseConfig.outputEnabled,
-    interruptionsEnabled: presetConfig.interruptionsEnabled ?? baseConfig.interruptionsEnabled,
-    visualizationEnabled: presetConfig.visualizationEnabled ?? baseConfig.visualizationEnabled,
-    inputMode: presetConfig.inputMode ?? baseConfig.inputMode,
-    microphoneSensitivity: presetConfig.microphoneSensitivity ?? baseConfig.microphoneSensitivity,
-    noiseSuppression: presetConfig.noiseSuppression ?? baseConfig.noiseSuppression,
-    agentOverrides: presetConfig.agentOverrides ?? baseConfig.agentOverrides,
-  };
-}
-
-// ==========================================
-// CONFIGURATION VALIDATION
-// ==========================================
-
-/**
- * Validate voice configuration
- */
-export interface VoiceConfigValidationResult {
-  isValid: boolean;
-  errors: string[];
-  warnings: string[];
-  suggestions: string[];
-}
-
-/**
- * Validate a voice configuration
+ * Validate voice configuration (required by voice-manager.ts)
  */
 export function validateVoiceConfig(config: VoiceConfig): VoiceConfigValidationResult {
   const errors: string[] = [];
@@ -570,104 +423,10 @@ export function validateVoiceConfig(config: VoiceConfig): VoiceConfigValidationR
   };
 }
 
-// ==========================================
-// CONFIGURATION UTILITIES
-// ==========================================
-
-/**
- * Optimize voice configuration for device/network
- */
-export function optimizeVoiceConfigForEnvironment(
-  config: VoiceConfig,
-  environment: {
-    deviceType: 'mobile' | 'desktop' | 'tablet';
-    networkType: 'slow' | 'fast' | 'unknown';
-    batteryLevel?: number; // 0-1 for mobile devices
-  }
-): VoiceConfig {
-  const optimized = { ...config };
-
-  // Mobile optimizations
-  if (environment.deviceType === 'mobile') {
-    // Conserve battery
-    if (environment.batteryLevel && environment.batteryLevel < 0.2) {
-      optimized.quality = 'standard';
-      optimized.visualizationEnabled = false;
-    }
-    
-    // Touch-friendly input mode
-    optimized.inputMode = 'push_to_talk';
-  }
-
-  // Network optimizations
-  if (environment.networkType === 'slow') {
-    optimized.quality = 'standard';
-    optimized.latencyMode = 'low';
-  }
-
-  return optimized;
-}
-
-/**
- * Get recommended voice configuration for specific use case
- */
-export function getRecommendedConfigForUseCase(
-  useCase: 'learning' | 'business' | 'casual' | 'accessibility',
-  language: string = 'en'
-): VoiceConfig {
-  const baseConfig = createDefaultVoiceConfig(language);
-
-  switch (useCase) {
-    case 'learning':
-      return applyVoicePreset(baseConfig, 'learning_mode');
-    case 'business':
-      return applyVoicePreset(baseConfig, 'professional');
-    case 'casual':
-      return applyVoicePreset(baseConfig, 'casual');
-    case 'accessibility':
-      return applyVoicePreset(baseConfig, 'accessibility');
-    default:
-      return baseConfig;
-  }
-}
-
-/**
- * Merge voice configurations with precedence
- */
-export function mergeVoiceConfigs(
-  base: VoiceConfig,
-  ...overrides: Partial<VoiceConfig>[]
-): VoiceConfig {
-  return overrides.reduce<VoiceConfig>(
-    (merged, override) => {
-      // 🔧 FIX: Apply each override property explicitly
-      return {
-        ...merged,
-        enabled: override.enabled ?? merged.enabled,
-        provider: override.provider ?? merged.provider,
-        voiceId: override.voiceId ?? merged.voiceId,
-        language: override.language ?? merged.language,
-        speed: override.speed ?? merged.speed,
-        quality: override.quality ?? merged.quality,
-        latencyMode: override.latencyMode ?? merged.latencyMode,
-        autoplay: override.autoplay ?? merged.autoplay,
-        inputEnabled: override.inputEnabled ?? merged.inputEnabled,
-        outputEnabled: override.outputEnabled ?? merged.outputEnabled,
-        interruptionsEnabled: override.interruptionsEnabled ?? merged.interruptionsEnabled,
-        visualizationEnabled: override.visualizationEnabled ?? merged.visualizationEnabled,
-        inputMode: override.inputMode ?? merged.inputMode,
-        microphoneSensitivity: override.microphoneSensitivity ?? merged.microphoneSensitivity,
-        noiseSuppression: override.noiseSuppression ?? merged.noiseSuppression,
-        agentOverrides: override.agentOverrides ?? merged.agentOverrides,
-      };
-    },
-    base
-  );
-}
-
-/**
- * Clone voice configuration
- */
-export function cloneVoiceConfig(config: VoiceConfig): VoiceConfig {
-  return JSON.parse(JSON.stringify(config));
+// Also need this interface for validation
+export interface VoiceConfigValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  suggestions: string[];
 }

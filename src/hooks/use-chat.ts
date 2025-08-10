@@ -4,6 +4,17 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 
+// 🎯 NEW: Input type enumeration for better type safety
+type MessageInputType = 'text' | 'voice';
+
+// 🎯 NEW: Voice interaction metadata
+interface VoiceMetadata {
+  inputType?: MessageInputType;           // How the message was created
+  shouldAutoPlay?: boolean;               // Override auto-play decision
+  voiceProcessed?: boolean;               // Track if voice processing is complete
+  voiceError?: string;                    // Any voice-related errors
+}
+
 // 🎯 NEW: Enhanced message interface with user context
 interface Message {
   id: string;
@@ -16,7 +27,17 @@ interface Message {
     responseTime?: number;
     confidence?: number;
     isStreaming?: boolean;
-    userContext?: UserContext; // 🎯 NEW: User context in message metadata
+    userContext?: UserContext;
+    
+    // 🎯 NEW: Voice-specific metadata
+    inputType?: MessageInputType;         // 'text' | 'voice' - How message was created
+    shouldAutoPlay?: boolean;             // Override auto-play behavior
+    voiceProcessed?: boolean;             // Track voice processing state
+    voiceError?: string;                  // Voice-related errors
+    
+    // 🎯 NEW: Additional context for decision making
+    conversationMode?: 'text' | 'voice' | 'mixed';  // Current conversation context
+    userTriggeredVoice?: boolean;         // User explicitly requested voice
   };
 }
 
@@ -33,6 +54,7 @@ interface ChatOptions {
   agentId?: 'router' | 'digital-mentor' | 'finance-guide' | 'health-coach';
   stream?: boolean;
   conversationId?: string;
+  inputType?: string;
 }
 
 // 🎯 NEW: Enhanced API response interface
@@ -445,9 +467,54 @@ export function useChat() {
   };
 }
 
+// 🎯 NEW: Helper functions for voice metadata handling
+// 🎯 NEW: Helper functions for voice metadata handling
+export function hasVoiceMetadata(message: Message): message is Message & {
+  metadata: NonNullable<Message['metadata']> & {
+    inputType: MessageInputType;
+  };
+} {
+  return !!(message?.metadata?.inputType);
+}
+
+export function shouldMessageAutoPlay(message: Message | undefined): boolean {
+  // 🔧 FIX: Add null check
+  if (!message) {
+    return false;
+  }
+  
+  // Explicit override takes precedence
+  if (message.metadata?.shouldAutoPlay !== undefined) {
+    return message.metadata.shouldAutoPlay;
+  }
+  
+  // Only assistant messages can auto-play
+  if (message.role !== 'assistant') {
+    return false;
+  }
+  
+  // If no input type specified, default to no auto-play for safety
+  if (!message.metadata?.inputType) {
+    return false;
+  }
+  
+  // Auto-play only if the conversation was initiated via voice
+  return message.metadata.inputType === 'voice';
+}
+
+export function getMessageInputType(message: Message | undefined): MessageInputType {
+  // 🔧 FIX: Add null check
+  if (!message) {
+    return 'text';
+  }
+  return message.metadata?.inputType || 'text'; // Default to text for backward compatibility
+}
+
 // 🎯 NEW: Export enhanced types for use in components
 export type {
   Message,
+  MessageInputType,
+  VoiceMetadata,
   UserContext,
   ChatOptions,
   ChatAPIResponse,

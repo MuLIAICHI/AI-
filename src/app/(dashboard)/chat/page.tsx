@@ -29,6 +29,7 @@ import {
   Heart
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { VoiceTest } from '@/components/test/voice-test';
 
 export default function ChatPage() {
   const { user, isLoaded } = useUser();
@@ -259,6 +260,7 @@ export default function ChatPage() {
           "flex-1 min-h-0",
           error ? "h-[calc(100vh-160px)]" : "h-[calc(100vh-64px)]"
         )}>
+          <VoiceTest />
           <ChatWindow 
             className="h-full w-full"
             showWelcome={!currentChatId && messages.length === 0}
